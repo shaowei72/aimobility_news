@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: aimobility-news
+Version: 0.1.0
+Summary: AI Mobility News aggregator
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: feedparser>=6.0.14
+Provides-Extra: dev
+
+# aimobility-news
+
+AI Mobility News aggregator.
