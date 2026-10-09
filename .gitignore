@@ -26,3 +26,8 @@ Desktop.ini
 
 # Node.js dependencies, if added later
 node_modules/
+
+# Python packaging build artifacts
+*.egg-info/
+build/
+dist/

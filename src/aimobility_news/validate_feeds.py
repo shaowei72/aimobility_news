@@ -1,22 +1,25 @@
 import feedparser
+from .config import FEEDS
 
-
-feeds = {
-    "Esri ArcGIS Blog": "https://www.esri.com/arcgis-blog/feed/",
-    "GIM International": "https://www.gim-international.com/rss",
-    "ITS International": "https://www.itsinternational.com/rss.xml",
-}
-
-
-for name, url in feeds.items():
+for name, url in FEEDS.items():
     feed = feedparser.parse(url)
+
+    status = getattr(feed, "status", "unknown")
+    entries = len(feed.entries)
+
+    if entries > 0 and not feed.bozo:
+        result = "OK"
+    elif entries > 0:
+        result = "WARN"
+    else:
+        result = "FAIL"
 
     print(f"\n{name}")
     print("-" * len(name))
-    print(f"URL: {url}")
-    print(f"HTTP status: {getattr(feed, 'status', 'unknown')}")
+    print(f"Result: {result}")
+    print(f"HTTP status: {status}")
     print(f"Parse error: {feed.bozo}")
-    print(f"Number of entries: {len(feed.entries)}")
+    print(f"Number of entries: {entries}")
 
     if feed.bozo:
         print(f"Error details: {feed.bozo_exception}")
@@ -26,5 +29,3 @@ for name, url in feeds.items():
         print(f"Latest title: {latest.get('title', 'No title')}")
         print(f"Published: {latest.get('published', 'No published date')}")
         print(f"Link: {latest.get('link', 'No link')}")
-    else:
-        print("No entries found")

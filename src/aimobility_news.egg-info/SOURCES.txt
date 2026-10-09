@@ -1,9 +1,0 @@
-README.md
-pyproject.toml
-src/aimobility_news/__init__.py
-src/aimobility_news/validate_feeds.py
-src/aimobility_news.egg-info/PKG-INFO
-src/aimobility_news.egg-info/SOURCES.txt
-src/aimobility_news.egg-info/dependency_links.txt
-src/aimobility_news.egg-info/requires.txt
-src/aimobility_news.egg-info/top_level.txt
