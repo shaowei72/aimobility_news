@@ -9,3 +9,8 @@ class Article:
     source: str
     published_at: datetime | None
     summary: str | None
+
+    ai_score: int | None = None
+    geoai_score: int | None = None
+    transport_score: int | None = None
+    total_score: int | None = None

@@ -6,3 +6,5 @@ FEEDS = {
     "Planet OSGeo": "http://planet.osgeo.org/rss20.xml",
     "Smart Cities Dive": "https://www.smartcitiesdive.com/feeds/news/",
 }
+
+RECENT_HOURS = 48
