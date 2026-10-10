@@ -12,6 +12,7 @@ def fetch_articles():
         feed = feedparser.parse(url)
 
         for entry in feed.entries:
+            published_at = None
             if entry.get("published_parsed"):
                 published_at = datetime(
                     *entry.published_parsed[:6],
@@ -22,7 +23,7 @@ def fetch_articles():
                 title=entry.get("title", ""),
                 url=entry.get("link", ""),
                 source=source,
-                published_at= published_at,
+                published_at=published_at,
                 summary=entry.get("summary")
             )
 
@@ -35,7 +36,7 @@ if __name__ == "__main__":
 
     print(f"Fetched {len(articles)} articles")
 
-    for article in random.sample(articles, 10):
+    for article in random.sample(articles,  min(10, len(articles))):
         print()
         print(article.title)
         print(article.source)
