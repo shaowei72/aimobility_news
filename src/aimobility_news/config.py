@@ -8,3 +8,5 @@ FEEDS = {
 }
 
 RECENT_HOURS = 48
+
+SCORING_MODEL = "gpt-6.1-sol"
