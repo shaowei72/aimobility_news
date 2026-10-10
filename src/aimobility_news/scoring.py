@@ -1,9 +1,6 @@
 from .models import Article
 from pydantic import BaseModel
 from openai import OpenAI
-from .feeds import fetch_articles, filter_recent_articles, deduplicate_articles
-from .ranking import rank_articles
-from .digest import generate_digest, save_digest
 from .config import SCORING_MODEL
 
 client = OpenAI()
@@ -75,63 +72,18 @@ def score_articles(articles: list[Article]) -> list[Article]:
 
 
 if __name__ == "__main__":
-    articles = fetch_articles()
-    recent_articles = filter_recent_articles(articles)
-    unique_articles = deduplicate_articles(recent_articles)
-    scored_articles = score_articles(unique_articles)
-    ranked_articles = rank_articles(scored_articles)
+    test_article = Article(
+        title="PwC and Esri to harness geospatial AI together",
+        url="https://example.com/article",
+        source="GIM International",
+        published_at=None,
+        summary="PwC and Esri announced a collaboration involving geospatial AI."
+    )
 
-    # for article in ranked_articles:
-    #     print("\n")
-    #     print(article.title)
-        # print(f"AI score: {scored.ai_score}")
-        # print(f"GeoAI score: {scored.geoai_score}")
-        # print(f"Transport score: {scored.transport_score}")
-    #     print(f"Total score: {article.total_score}")
+    scored_article = score_article(test_article)
 
-    top_5 = ranked_articles[:5]
-    digest = generate_digest(top_5)
-    file_path = save_digest(digest)
-    print(f"Digest saved to: {file_path}")
-    
-    print(digest)
-
-
-    # test_article = Article(
-    #     title="PwC and Esri to harness geospatial AI together",
-    #     url="https://example.com/article",
-    #     source="GIM International",
-    #     published_at=None,
-    #     summary="PwC and Esri announced a collaboration involving geospatial AI."
-    # )
-
-    # scored_article = score_article(test_article)
-
-    # print(scored_article.title)
-    # print(f"AI score: {scored_article.ai_score}")
-    # print(f"GeoAI score: {scored_article.geoai_score}")
-    # print(f"Transport score: {scored_article.transport_score}")
-    # print(f"Total score: {scored_article.total_score}")
-
-    # articles = [
-    #     Article(
-    #         title="Article 1",
-    #         url="https://example.com/1",
-    #         source="Source A",
-    #         published_at=None,
-    #         summary=None
-    #     ),
-    #     Article(
-    #         title="Article 2",
-    #         url="https://example.com/2",
-    #         source="Source B",
-    #         published_at=None,
-    #         summary=None
-    #     ),
-    # ]
-    
-    # scored_articles = score_articles(articles)
-    # print(len(scored_articles))
-
-    # for article in scored_articles:
-    #     print(f"Title: {article.title}, Total AI score: {article.total_score}")
+    print(scored_article.title)
+    print(f"AI score: {scored_article.ai_score}")
+    print(f"GeoAI score: {scored_article.geoai_score}")
+    print(f"Transport score: {scored_article.transport_score}")
+    print(f"Total score: {scored_article.total_score}")
