@@ -1,15 +1,30 @@
+import requests
 import feedparser
 from datetime import datetime, timezone, timedelta
 import random
 
 from .models import Article
 from .config import FEEDS, RECENT_HOURS
+from .esri_search import fetch_esri_articles
+
+def load_feed(url: str):
+    response = requests.get(
+        url,
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=20
+    )
+
+    response.raise_for_status()
+
+    return feedparser.parse(response.content)
+
+
 
 def fetch_articles():
     articles = []
 
     for source, url in FEEDS.items():
-        feed = feedparser.parse(url)
+        feed = load_feed(url)
 
         for entry in feed.entries:
             published_at = None
@@ -60,20 +75,29 @@ def deduplicate_articles(articles):
 
 
 if __name__ == "__main__":
-    articles = fetch_articles()
+    # articles = fetch_articles() + fetch_esri_articles()
+    articles= fetch_articles()
     recent_articles = filter_recent_articles(articles)
     unique_articles = deduplicate_articles(recent_articles)
 
     print(f"Fetched {len(articles)} articles")
-    print(f"Published in last 24 hours: {len(recent_articles)}")
+    print(f"Published in last {RECENT_HOURS} hours: {len(recent_articles)}")
     print(f"Unique: {len(unique_articles)}")
 
-    for article in random.sample(unique_articles,  min(10, len(unique_articles))):
+    for article in unique_articles:
         print()
         print(article.title)
         print(article.source)
         print(article.published_at)
         print(article.url)
+
+
+    # for article in random.sample(unique_articles,  min(10, len(unique_articles))):
+    #     print()
+    #     print(article.title)
+    #     print(article.source)
+    #     print(article.published_at)
+    #     print(article.url)
 
 
     # test_articles = [

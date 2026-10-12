@@ -31,3 +31,6 @@ node_modules/
 *.egg-info/
 build/
 dist/
+
+# Generated daily digests (local only)
+output/

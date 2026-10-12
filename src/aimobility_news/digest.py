@@ -10,6 +10,10 @@ from .models import Article
 
 client = OpenAI()
 
+# Project root (two levels above src/aimobility_news/), so digests always
+# land in <project>/output regardless of the current working directory.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 
 class DigestEntry(BaseModel):
     summary: str
@@ -80,15 +84,21 @@ def generate_digest(articles: list[Article]) -> str:
 
 def save_digest(
     digest: str,
-    output_dir: str = "output"
+    output_dir: Path = PROJECT_ROOT / "output"
 ) -> Path:
     output_path = Path(output_dir)
 
     output_path.mkdir(exist_ok=True)
 
-    filename = f"digest-{datetime.now():%Y-%m-%d}.md"
+    base_name = f"digest-{datetime.now():%Y-%m-%d}"
+    file_path = output_path / f"{base_name}.md"
 
-    file_path = output_path / filename
+    counter = 1
+
+    while file_path.exists():
+        file_path = output_path / f"{base_name}({counter}).md"
+        counter += 1
+
     file_path.write_text(digest, encoding="utf-8")
 
     return file_path

@@ -61,6 +61,9 @@ uv run python -m aimobility_news.validate_feeds
 uv run python -m aimobility_news.feeds
 ```
 
+Digests are written to `output/`, which is git-ignored. See
+[`docs/sample-digest.md`](docs/sample-digest.md) for an example.
+
 Settings such as the feed list, time window (`RECENT_HOURS`), and model
 (`SCORING_MODEL`) are in `src/aimobility_news/config.py`.
 
