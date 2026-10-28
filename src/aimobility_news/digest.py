@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from .config import SCORING_MODEL
 from .models import Article
+from .scoring import text_for_scoring
 
 
 client = OpenAI()
@@ -21,6 +22,9 @@ class DigestEntry(BaseModel):
 
 
 def generate_article_digest(article: Article) -> DigestEntry:
+    # Same capped full text (or summary) that was used for scoring
+    text_label, text = text_for_scoring(article)
+
     prompt = f"""
 You are preparing a concise daily briefing for a technically informed
 reader interested in AI, GIS/GeoAI, and land transport.
@@ -40,8 +44,8 @@ Title:
 Source:
 {article.source}
 
-Article summary:
-{article.summary}
+{text_label}:
+{text}
 """
 
     response = client.responses.parse(
@@ -59,7 +63,7 @@ def generate_digest(articles: list[Article]) -> str:
 
     today = datetime.now().strftime("%Y-%m-%d")
 
-    lines.append("# AI × GeoAI × Land Transport")
+    lines.append("# AI × Transport")
     lines.append(f"## Daily Briefing — {today}")
     lines.append("")
 

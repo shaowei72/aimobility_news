@@ -50,11 +50,15 @@ def fetch_aidailybrief_articles() -> list[Article]:
 
         date_text = href.removeprefix("/e/").strip("/")
 
+        # The URL gives only a date. Stamp it at the end of that day (UTC) so
+        # the edition is not treated as up to a day older than it really is.
         try:
             published_at = datetime.strptime(
                 date_text,
                 "%Y-%m-%d"
-            ).replace(tzinfo=timezone.utc)
+            ).replace(
+                hour=23, minute=59, second=59, tzinfo=timezone.utc
+            )
         except ValueError:
             published_at = None
 
