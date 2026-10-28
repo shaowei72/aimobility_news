@@ -1,6 +1,6 @@
 # AI Mobility News App — Checkpoint
 
-_Last updated: 2026-10-12 — MVP v0.2 in progress_
+_Last updated: 2026-10-28 — MVP v0.2 in progress_
 
 ## Project
 
@@ -9,7 +9,9 @@ Python package: `aimobility_news`
 Local folder: `E:\MyLocalDev\AIMobility\aimobility_news`  
 Remote: https://github.com/shaowei72/aimobility_news
 
-**Goal:** a daily AI-powered news intelligence digest focused on GeoAI / GIS, AI applied to land transport, and developments relevant to transport authorities, operators, planners, and geospatial teams.
+**Goal:** a daily AI-powered news intelligence digest on **AI applied to land transport**, with emphasis on GeoAI and the use of GIS in transport, for transport authorities, operators, planners, and geospatial teams.
+
+The focus narrowed on 2026-10-28 from three themes (AI × GeoAI × land transport) to two scored domains, AI and land transport, with GeoAI and GIS rewarded at the top of each scale instead of being a separate requirement. The digest title is now "AI × Transport".
 
 Not in scope until later roadmap versions: web UI (v0.5), embeddings / vector databases / RAG (v0.6), and agentic research (v0.7). Automatic WhatsApp sending is not yet planned; v0.4 covers copy/paste-ready output only.
 
@@ -25,247 +27,153 @@ Not in scope until later roadmap versions: web UI (v0.5), embeddings / vector da
 - [x] AI-generated summary + "why it matters"
 - [x] Markdown digest output
 
-Run the full pipeline:
-
-```powershell
-uv run python -m aimobility_news.main
-```
-
-First successful end-to-end run: 2026-10-10 → `output/digest-2026-10-10.md`.
-
-Released in commit `8a47bfa` ("Build MVP v0.1 for AI mobility news digest"), followed by `b10c490` (`scoring.py` `__main__` reduced to a single-article test).
+First successful end-to-end run: 2026-10-10. Released in commit `8a47bfa`.
 
 ---
 
-## 2. MVP v0.2 — progress so far
+## 2. MVP v0.2 — progress
 
-The main focus of v0.2 is **better source coverage and freshness** plus **relevance thresholding**. The thresholding mechanism is now implemented; remaining work is mainly source validation, end-to-end testing, and threshold tuning.
+v0.2 covers **source coverage and freshness**, **relevance thresholding**, and, since 2026-10-28, **a new scoring method** and **full-text scoring**.
 
-### 2.1 Esri non-RSS ingestion — working
+### 2.1 Source adapters (committed in `02807a8`)
 
-Esri remains strategically important, but direct access proved difficult:
+- **Esri ArcGIS Blog via OpenAI web search** (`esri_search.py`). RSS returns 403, and `requests` / Playwright are blocked. Dates are normalised to timezone-aware UTC.
+- **AI Daily Brief archive scraper** (`aidailybrief.py`), using `a.ed-title` links and the `.ed-main .ed-teaser` summary. One edition = one `Article`.
+- **RSS via `requests → feedparser.parse(response.content)`** instead of `feedparser.parse(url)`, which failed on some Substack feeds.
 
-```text
-RSS feed
-→ 403 / unusable
+### 2.2 Relevance thresholding and output (committed in `02807a8`)
 
-requests + BeautifulSoup
-→ 403 Forbidden
+- `MIN_TOTAL_SCORE` filters ranked articles before Top-N selection; `TOP_RANKED` sets the maximum digest size (8). Fewer items are allowed when few are relevant.
+- `save_digest()` never overwrites same-day digests (`digest-YYYY-MM-DD(1).md`, …) and always writes to `<project>/output`.
 
-Playwright / Chromium
-→ Access Denied
+### 2.3 New scoring method: AI × transport (committed in `6581a8e`)
 
-OpenAI web search
-→ works
-```
+The original score was `ai × geoai × transport`, each 1–5. In practice it was too harsh: a 1 meant "not or weakly relevant" but still multiplied as a neutral value, single-theme stories (5×1×1) scored the same as unrelated ones, and general news clustered at 1–8 so digests came out empty. A pairwise-sum variant was tried briefly.
 
-A new `esri_search.py` module now uses the OpenAI Responses API with the web-search tool to find recent ArcGIS Blog content and convert results into the common `Article` model.
+The current method uses two criteria, each an integer **0–5** (0 = not relevant), and each with a one-sentence reason (`ai_reason`, `transport_reason`) generated before the score:
 
-The main pipeline can combine sources before applying the existing downstream logic:
+| Level | `ai_score` | `transport_score` |
+|---|---|---|
+| 0 | No AI content | No land transport content |
+| 1 | Passing mention / buzzword | Passing mention |
+| 2 | General AI news (models, funding, regulation) | Routine transport news (accidents, fares, earnings) |
+| 3 | Concrete AI application, non-spatial | Substantive planning / operations / policy, non-spatial |
+| 4 | AI on spatial or location data is significant | Spatial / location data is significant to the story |
+| 5 | GeoAI is the central subject | GIS / geospatial for transport is the central subject |
 
-```text
-RSS sources -----------\
-                       \
-Esri search ------------→ Article objects
-                       /
-Other source adapters -/
+`total_score = ai_score × transport_score` (range 0–25). An article must touch both domains to score above 0, and spatial content raises both axes, so GeoAI-for-transport stories (16–25) rank clearly above non-spatial AI-in-transport (~9).
 
-→ recent filter
-→ deduplicate
-→ score
-→ rank
-→ digest
-```
+The prompt also includes general rules (score only what the text says; pick the lower level when between two; marketing language does not raise a score above 1; when full text is given, score its main subject) and borderline guidance for autonomous vehicles, EVs, ride-hailing, freight, aviation/maritime, smart cities, property, disasters, digital twins, newsletters, and "algorithms/analytics" wording. See `scoring.py`.
 
-A timezone mismatch was found when combining Esri and RSS results (`offset-naive` vs `offset-aware` datetimes). Esri dates are now normalized to timezone-aware UTC datetimes.
+Land transport only: aviation and maritime score 0 unless the article concerns their land-side connections.
 
-A full pipeline run successfully returned 10 Esri articles, but none survived the normal 48-hour freshness filter because the newest Esri result was older than 48 hours. This showed that the Esri ingestion path works, while also highlighting the need to separate **source availability** from **daily freshness**.
+**Threshold guidance:** `MIN_TOTAL_SCORE = 9` means both criteria at least "clearly relevant" (3×3); 12 effectively requires a spatial element on one axis. The committed value is currently **3**, a test setting.
 
-### 2.2 More robust RSS retrieval — validated on Substack
+### 2.4 Full-text scoring (committed in `6581a8e`)
 
-Direct `feedparser.parse(url)` failed on the GeoAI Signal Substack feed even though the server returned HTTP 200. The feed reported a malformed XML error and zero entries.
+RSS summaries are often one sentence (Straits Times / Business Times ~15 words, Substack subtitles ~13 words), so scoring on them was conservative and digest summaries lacked detail. Now:
 
-A more robust pattern was tested successfully:
+- `Article.content` holds the full article text (plain text) when available.
+- `extract_content()` takes the longest of `entry.content` and the summary, and treats it as full text only if it has at least `FULL_TEXT_MIN_WORDS` (150) words. This covers feeds that put the article in `<content:encoded>` (Substack, OGC, NVIDIA, MIT) and feeds that put it in `<description>` (IEEE Spectrum, Berkeley AI Research), and ignores short teasers or image-only bodies.
+- For sources in `PAGE_FETCH_SOURCES` (Google Research, Google DeepMind, Hugging Face Blog), whose feeds carry 0–13 words, the article webpage is fetched with `requests` and extracted with `trafilatura`. This runs **after** the recency filter and deduplication, so only recent articles are fetched (about 0.4 s per page).
+- Scoring and digest generation both use `text_for_scoring()`: full text capped at `MAX_CONTENT_WORDS` (1,500), otherwise the summary. The prompt labels which one it is.
+- Summaries are stripped of HTML. Feed entries without a title or link are skipped.
 
-```text
-requests.get(url)
-→ response.content
-→ feedparser.parse(response.content)
-```
+Full-text availability checked on 2026-10-28:
 
-Using this approach, GeoAI Signal returned:
+| Source | Where the full text is | Typical length |
+|---|---|---|
+| GeoAI Signal, GeoAI Unpacked, Geospatial Law | `entry.content` | 640–1,900 words |
+| Open Geospatial Consortium | `entry.content` | ~610 words |
+| MIT Autonomous Vehicles, NVIDIA Blog | `entry.content` | 830–1,100 words |
+| IEEE Spectrum, Berkeley AI Research | summary (`<description>`) | 670–3,800 words |
+| Google Research, Google DeepMind, Hugging Face | webpage (`trafilatura`) | 900–4,000 words |
+| Planet OSGeo | summary, mixed | 9–2,250 words |
+| QGIS Blog | summary extracts | ~90 words |
+| GIM International, Smart Cities Dive, Straits Times, Business Times | summary only | 12–30 words |
 
-```text
-HTTP status: 200
-Parse error: False
-Entries: 9
-```
+### 2.5 Robustness and tooling (committed in `6581a8e`)
 
-This suggests that `requests` should handle HTTP retrieval and `feedparser` should focus on RSS parsing. The pattern should be used consistently in `feeds.py` and `validate_feeds.py`.
+- One failing feed no longer aborts the run: `fetch_articles()` catches `requests.RequestException` per feed and prints a warning.
+- `validate_feeds.py` fetches with `requests` and reports HTTP status, content type, and parse errors.
+- AI Daily Brief editions are stamped at **23:59:59 UTC** on their date. Previously they were stamped 00:00 UTC, which made each edition look up to a day older, so none passed a 24-hour filter for most of the day. Side effect: evening (SGT) runs may include the same edition on two consecutive days.
+- `main.py` times each pipeline step and prints a summary sorted slowest first.
+- `feeds.py` has two debugging helpers: `inspect_feed_structure()` and `inspect_article_webpage()`.
 
-`feeds.py` now uses this pattern via `load_feed()`. `validate_feeds.py` still calls `feedparser.parse(url)` directly, so its results can differ from what the pipeline actually fetches — still to be switched over.
+### 2.6 Active feed set
 
-Note: `load_feed()` calls `raise_for_status()` and `fetch_articles()` does not catch errors, so a single failing feed (403, timeout) now aborts the whole run. Previously `feedparser.parse(url)` never raised.
+`config.py` defines several feed sets; `FEEDS = FEEDS_NEW` is active:
 
-GeoAI Signal is a strong GeoAI source, but it publishes roughly weekly, so it will only enter a 24-hour digest shortly after publication.
+- **`FEEDS_NEW` (active):** MIT Autonomous Vehicles, The Robot Report (**403, skipped**), NVIDIA Blog, Google Research, Google DeepMind, Berkeley AI Research, Hugging Face Blog
+- **Specialist set (defined as `FEEDS`, then overridden):** IEEE Spectrum Full Text, IEEE Spectrum Robotics, OGC, GeoAI Signal, GeoAI Unpacked, Geospatial Law; ITS International commented out (unconfirmed endpoint)
+- **Commented out:** GIM International, Geospatial World, OGC, QGIS Blog, Planet OSGeo, Smart Cities Dive, Straits Times (2 sections), Business Times (6 sections)
+- **`FEEDS2` (experiment):** Medium GeoAI, Esri RSS (403)
 
-Additional Substack sources, now added to `FEEDS`:
+Esri search and AI Daily Brief run on every pipeline run, independent of `FEEDS`.
 
-- GeoAI Unpacked — `/feed`
-- Geospatial Law — `/feed`; adjacent governance / policy source
-
-### 2.3 AI Daily Brief direct scraping — implemented and refined
-
-`aidailybrief.ai` does not currently have a verified RSS endpoint, but its archive page is directly accessible and structured enough to scrape.
-
-A new `aidailybrief.py` source adapter uses `requests + BeautifulSoup` and converts editions into `Article` objects.
-
-The first scraper version picked up the wrong `/e/...` links and failed to extract useful summaries. HTML inspection identified the correct archive structure:
-
-```text
-.ed-main
-├── .ed-kicker
-├── .ed-title     ← edition title
-└── .ed-teaser    ← summary / teaser
-```
-
-The scraper should therefore select only `a.ed-title` links and extract the summary from the enclosing `.ed-main .ed-teaser` block.
-
-For v0.2, one AI Daily Brief edition is treated as one `Article`. Splitting each edition into individual stories can be considered later if finer-grained ranking is needed.
-
-### 2.4 Singapore mainstream news sources added
-
-The Straits Times and The Business Times both expose RSS sections relevant to the project. These are now in `FEEDS`:
-
-- Straits Times — Singapore, Business
-- Business Times — Singapore, Economy & Policy, Telcos / Media / Tech, Transport & Logistics, Startups / Tech, Technology
-
-A fetch-only check on 2026-10-12 (no OpenAI calls) succeeded for all 11 RSS feeds:
-
-```text
-Fetched 237 → recent (24h) 39 → unique 35
-Straits Times Singapore 18, Straits Times Business 8, Business Times Singapore 3,
-BT Telcos/Media/Tech 2, BT Transport & Logistics 2, BT Startups & Tech 2
-```
-
-Observations:
-
-- All 35 recent items came from Straits Times / Business Times; none came from a GeoAI source. With the old GeoAI RSS feeds commented out and the product score requiring AI × GeoAI × transport, the digest may be dominated by general Singapore news, or come out empty after thresholding.
-- 35 unique URLs had only 33 unique titles: the same story appears under different URLs across ST/BT sections. URL-only deduplication misses these, which costs extra scoring calls and can duplicate digest entries.
-
-### 2.5 Relevance thresholding — implemented
-
-`MIN_TOTAL_SCORE = 20` has now been added to `config.py`, and `main.py` filters ranked articles before selecting the final digest items. The digest size is now configurable via `TOP_RANKED = 8` (was a hard-coded Top 5):
-
-```python
-qualified_articles = [
-    article
-    for article in ranked_articles
-    if article.total_score >= MIN_TOTAL_SCORE
-]
-
-top_N = qualified_articles[:TOP_RANKED]
-```
-
-This means the digest no longer has to be padded with weakly relevant stories. If only three articles meet the threshold, only three are selected. Python list slicing is safe when fewer than `TOP_RANKED` items are available.
-
-If no article qualifies, `generate_digest([])` still writes a digest containing only the header. Consider an explicit "no relevant articles today" message.
-
-The initial threshold of 20 is a tuning parameter, not yet a final calibrated value; it should be reviewed over several daily runs.
-
-### 2.6 Digest output preservation — implemented
-
-`save_digest()` no longer overwrites the earlier digest when the pipeline runs more than once on the same day. Filenames follow this sequence:
-
-```text
-digest-2026-10-12.md
-digest-2026-10-12(1).md
-digest-2026-10-12(2).md
-...
-```
-
-This is useful during source and scoring experiments because each run can be compared without losing the previous output.
-
-`save_digest()` now writes to `<project root>/output` (resolved from the module's location) instead of a path relative to the current working directory. Previously, running from inside `src/` created a stray `src/output/` folder.
-
-### 2.7 Freshness window shortened to 24 hours
-
-`RECENT_HOURS` was reduced from 48 to 24. This suits daily news feeds (ST/BT) but makes weekly sources (Substacks) and search-derived results (Esri) even less likely to appear. A per-source lookback window, e.g. 7 days for weekly sources, is a candidate fix; it works best once SQLite (v0.3) prevents the same article resurfacing.
+Content fit: the `FEEDS_NEW` sources are mostly general AI / ML research. Under the AI × transport rubric most of their articles will score transport 0 and fall below the threshold, so they add scoring cost more often than digest items. Review this against logged scores.
 
 ---
 
-## 3. Key learnings so far
+## 3. Key learnings
 
-- **Source freshness remains the main quality constraint.** A technically valid source may still be too infrequent to contribute to a 24-hour digest.
-- **RSS should remain the preferred ingestion method when available.** It is simpler and more deterministic than scraping or search.
-- **Use search as a fallback, not the default.** Esri demonstrated the case where RSS and direct scraping are blocked, making search-based ingestion pragmatic.
-- **Search may lag.** Search-based discovery depends on what the search service has discovered/indexed and may have incomplete publication metadata.
-- **Scraping can work well for structured archives.** AI Daily Brief is a good example: direct access works and stable HTML selectors expose title, date, link, and teaser.
-- **One common `Article` model remains valuable.** RSS, search, and scraping can all feed the same downstream filter → dedupe → score → rank → digest pipeline.
-- **Timestamp normalization matters.** All `published_at` values should be stored internally as timezone-aware UTC datetimes.
-- **Source-specific adapters are acceptable.** Keep source-specific complexity isolated (`esri_search.py`, `aidailybrief.py`) while preserving a common downstream pipeline.
-- **Thresholding should happen after scoring/ranking and before Top-N selection.** `MIN_TOTAL_SCORE = 20` now prevents weak stories from being included just to fill the digest.
+- **Source freshness is the main quality constraint.** A valid source may publish too rarely to contribute to a 24-hour digest.
+- **RSS is preferred when available**; use search as a fallback (Esri) and scraping for structured archives (AI Daily Brief).
+- **Search-based discovery may lag** and returns model-written URLs, dates and summaries that are not verified.
+- **One common `Article` model** lets RSS, search, scraping and page fetching feed the same downstream pipeline.
+- **Normalise timestamps** to timezone-aware UTC. For date-only sources, stamping at the start of the day silently drops them from short windows.
+- **Feeds put full text in different places** (`content:encoded`, `description`, or nowhere). Check where before assuming a feed is summary-only.
+- **Fetch webpages only after filtering.** Some feeds list hundreds of entries (Hugging Face: 891).
+- **Multiplicative scores need a true zero.** A 1–5 scale where 1 means "not relevant" distorts products; 0–5 with 0 = none makes `ai × transport` behave cleanly.
+- **Threshold after scoring/ranking, before Top-N**, and expect to retune it whenever the formula or rubric changes.
 
 ---
 
-## 4. Next extensions (priority order)
+## 4. Next steps (priority order)
 
-### 1. Finish v0.2 source coverage and freshness
+### 1. Settle production settings and source mix
 
-- [x] Add a working Esri fallback via search
-- [x] Validate a robust Substack RSS retrieval pattern
-- [x] Build an AI Daily Brief archive scraper
-- [x] Add GeoAI Unpacked and Geospatial Law Substack feeds
-- [x] Add Straits Times RSS sections (fetch OK 2026-10-12)
-- [x] Add Business Times RSS sections (fetch OK 2026-10-12)
-- [x] Basic per-source counts printed in `main.py` (RSS / Esri / AI Daily Brief / combined / recent)
-- [ ] Switch `validate_feeds.py` to the `requests → feedparser` pattern (`load_feed()`)
-- [ ] Decide whether to restore the original GeoAI RSS feeds (currently commented out in `config.py`)
-- [ ] Decide on the `FEEDS2` experiment (Medium GeoAI works; Esri RSS returns 403): promote or remove
+- [ ] Set `MIN_TOTAL_SCORE` (recommended 9) and `RECENT_HOURS` (24) back from test values (3 and 72)
+- [ ] Decide the active feed set: `FEEDS_NEW` (general AI / robotics) vs the specialist / GeoAI / Singapore sets; consider merging
+- [ ] Remove or replace The Robot Report (403 with the current User-Agent)
+- [ ] Fix the QGIS URL if re-enabled: `https://blog.qgis.org/index.xml` (`/feed` returns 404)
+- [ ] Continue searching for AI-in-transport / ITS sources
 - [ ] Consider per-source lookback windows for weekly sources
-- [ ] Continue searching for stronger land-transport / ITS sources
-- [ ] Run the expanded source mix end-to-end and review digest quality
 
-### 2. Relevance thresholding
+### 2. Calibrate scoring
 
-- [x] Add `MIN_TOTAL_SCORE = 20` to `config.py`
-- [x] Filter ranked articles in `main.py` before Top-N selection
-- [x] Allow fewer than `TOP_RANKED` (now 8) items if only a few are genuinely relevant
-- [ ] Tune the product-score threshold based on several daily runs
+- [ ] Log every article's scores and reasons (JSON or CSV) per run, so the threshold and rubric can be tuned without extra API calls
+- [ ] Run several days and review digest quality and score distribution
+- [ ] Write a "no relevant articles today" message when nothing qualifies (the digest is currently header-only)
 
-### 3. SQLite repository
+### 3. SQLite repository (v0.3)
 
-- Store article metadata, scores, dates, source, and digest status
-- Avoid rescoring articles already seen (saves API cost)
-- Avoid resurfacing the same article across wider lookback windows
-- Create the foundation for historical search
+- Store article metadata, text, scores, reasons, dates, source, and digest status
+- Avoid rescoring and refetching articles already seen
+- Avoid resurfacing the same article across wider lookback windows (e.g. AI Daily Brief on consecutive evenings)
 
-### 4. WhatsApp-friendly output
+### 4. WhatsApp-friendly output (v0.4)
 
-- Produce compact plain-text formatting
-- Shorter summaries
-- Easy copy/paste
+- Compact plain-text formatting, shorter summaries, easy copy/paste
 
-### 5. Robustness
+### 5. Robustness (from the 2026-10-28 code review)
 
-- Retry failed API calls (currently one failure can abort the whole run)
-- Handle feed and source-adapter errors gracefully: wrap each feed in `fetch_articles()` and each adapter call in `main.py` in try/except, so one failing source doesn't stop the digest (**high priority** now that `load_feed()` raises on HTTP errors)
-- Deduplicate on normalized title as well as URL (ST/BT cross-posts)
-- Restrict Esri search results to `https://www.esri.com/arcgis-blog/` URLs (the domain filter allows all of `esri.com`, and URLs/dates come from the model unverified)
-- Strip HTML from RSS summaries
+- Esri search: restrict to `https://www.esri.com/arcgis-blog/` URLs; its summary is model-written with a GeoAI framing, which may inflate `ai_score`; it asks for 7 days but the window is shorter, so most results are discarded after a paid call
+- `validate_feeds.py`: reuse `load_feed()` (it currently uses a different timeout and headers); also report dated entries, recent entries, and full-text availability
+- Deduplicate on normalised title and canonical URL (strip `utm_*`), not only exact URL
+- Strip `script`, `style` and `figcaption` in `html_to_text()`; image credits and share/subscribe footers currently get through
+- `inspect_article_webpage()`: fetch with `requests`, handle unknown source names
+- Warn when AI Daily Brief returns no editions (HTML change)
+- Retry failed API calls; wrap Esri and AI Daily Brief calls in `main.py` so an adapter failure does not abort the run
 - Create the OpenAI client lazily instead of at import time in `scoring.py` and `digest.py`
-- Canonicalize URLs before deduplication, especially for search-derived results
-- Decide how to handle articles with missing or uncertain publication dates
 
 ### 6. Testing and cleanup
 
-- Add proper unit tests (e.g. pytest with hand-built `Article` objects for filtering, deduplication, ranking)
-- Add source-adapter tests for RSS, Esri search, and AI Daily Brief scraping
-- Remove scratch code when no longer needed: `openAI.py`, `substack.py`, `src/geoai_signal_feed.xml` (225 KB debug dump; don't commit), commented-out blocks in `feeds.py` / `main.py` / `aidailybrief.py`
+- Add pytest tests with hand-built `Article` objects (filtering, dedupe, ranking, `extract_content()`, `text_for_scoring()`)
+- Remove scratch code: `openAI.py`, `substack.py`, `src/geoai_signal_feed.xml` (225 KB debug dump, tracked in git), commented-out blocks
 - Remove unused imports in `feeds.py` (`random`, `fetch_esri_articles`)
-- Remove `playwright` from `pyproject.toml` (`esri_browser.py` is gone; nothing imports it)
-- Declare `pydantic` in `pyproject.toml` (used directly; only installed via `openai`)
-- ~~Fix hard-coded "24 hours" message in `feeds.py`~~ — done (uses `RECENT_HOURS`)
+- Remove `playwright` from `pyproject.toml` (unused); declare `pydantic` (used directly)
+- Regenerate `docs/sample-digest.md` with the new scoring (current sample is from v0.1)
 
 ---
 
@@ -273,7 +181,7 @@ This is useful during source and scoring experiments because each run can be com
 
 ```text
 v0.1  MVP pipeline                      ✅ complete
-v0.2  better sources + thresholding     🚧 in progress
+v0.2  sources, scoring, full text       🚧 in progress
 v0.3  SQLite repository
 v0.4  WhatsApp-ready digest
 v0.5  searchable web interface
@@ -287,114 +195,47 @@ Robustness and testing/cleanup continue alongside each release rather than as se
 
 ## Reference
 
-### Project structure
+### Current pipeline
 
 ```text
-aimobility_news/
-├── .gitignore
-├── pyproject.toml
-├── README.md
-├── uv.lock
-├── aimobility-news-checkpoint.md
-├── .venv/                      (local only, git-ignored)
-├── docs/
-│   └── sample-digest.md        # example output from the first v0.1 run
-├── output/                     (generated digests; local only, git-ignored)
-└── src/
-    └── aimobility_news/
-        ├── __init__.py
-        ├── main.py             # pipeline entry point / orchestration
-        ├── config.py           # feeds, freshness window, threshold, Top-N, model
-        ├── models.py           # Article dataclass (+ score fields)
-        ├── feeds.py            # RSS fetch (requests → feedparser), filter recent, deduplicate
-        ├── scoring.py          # OpenAI relevance scoring
-        ├── ranking.py          # sort by total_score
-        ├── digest.py           # OpenAI summary + why-it-matters -> Markdown
-        ├── esri_search.py      # Esri search-based source adapter
-        ├── aidailybrief.py     # AI Daily Brief HTML source adapter
-        ├── substack.py         # scratch: Substack/RSS test module
-        ├── openAI.py           # scratch: list available models
-        └── validate_feeds.py   # RSS feed health check (still uses feedparser.parse(url))
+RSS feeds (FEEDS) ------------\
+Esri search -------------------→ Article objects
+AI Daily Brief scraper -------/
+
+→ filter_recent_articles()     keep last RECENT_HOURS; undated articles dropped
+→ deduplicate_articles()       exact URL
+→ add_page_content()           webpage full text for PAGE_FETCH_SOURCES
+→ score_articles()             OpenAI: ai_score, transport_score (0–5) + reasons
+→ rank_articles()              total_score = ai × transport, descending
+→ threshold                    total_score >= MIN_TOTAL_SCORE
+→ [:TOP_RANKED]                up to Top 8
+→ generate_digest()            OpenAI summary + "why it matters" (same capped text)
+→ save_digest()                Markdown file in output/
+→ timing summary
 ```
 
-`esri_browser.py` (the Playwright experiment) has been deleted; only a stale `.pyc` remains in `__pycache__/`. `src/geoai_signal_feed.xml` is an untracked debug dump.
+### Where LLM capabilities are used
 
-### Environment
-
-- `uv` 0.12.24, Python 3.11.1 (`requires-python = ">=3.10"`)
-- Corporate TLS: use the system certificate store:
-
-```powershell
-uv sync --system-certs
-uv add <package> --system-certs
+```text
+scoring.py      relevance scores + reasons (structured output)
+digest.py       2–3 sentence summary + "why it matters"
+esri_search.py  web-search-assisted Esri discovery
 ```
 
-- Declared dependencies: `feedparser`, `openai`, `requests`, `beautifulsoup4`, plus `playwright` (left over from the Esri browser experiment and no longer used; remove it). `pydantic` is used directly but not declared.
-- OpenAI credentials come from the `OPENAI_API_KEY` environment variable. `.env` / `.env.*` are git-ignored; no keys should be stored in the repository.
-- Package modules using relative imports should normally be run with `-m`, e.g.:
-
-```powershell
-uv run python -m aimobility_news.main
-```
+Everything else (RSS retrieval, scraping, page extraction, filtering, deduplication, ranking, file writing) is deterministic code.
 
 ### Configuration (`config.py`)
 
 ```python
-FEEDS = { ... }          # 3 Substacks + 2 Straits Times + 6 Business Times sections
-FEEDS2 = { ... }         # experiment: Medium GeoAI, Esri RSS (403); swap via `# FEEDS = FEEDS2`
-RECENT_HOURS = 24
-MIN_TOTAL_SCORE = 20
-SCORING_MODEL = "gpt-6.1-sol"   # also used by esri_search.py and digest.py
+FEEDS = FEEDS_NEW            # see section 2.6
+RECENT_HOURS = 72            # test value; 24 for daily use
+MIN_TOTAL_SCORE = 3          # test value; 9 recommended
+SCORING_MODEL = "gpt-6.1-sol"
+MAX_CONTENT_WORDS = 1500
+FULL_TEXT_MIN_WORDS = 150
+PAGE_FETCH_SOURCES = {"Google Research", "Google DeepMind", "Hugging Face Blog"}
 TOP_RANKED = 8
 ```
-
-The six original v0.1 RSS feeds (GIM International, Geospatial World, OGC, QGIS Blog, Planet OSGeo, Smart Cities Dive) are currently commented out.
-
-### Current pipeline
-
-```text
-RSS feeds ---------------------\
-                               \
-Esri search --------------------→ Article objects
-                               /
-AI Daily Brief scraper --------/
-
-→ filter_recent_articles()     keep last RECENT_HOURS; undated articles dropped
-→ deduplicate_articles()       currently by exact URL
-→ score_articles()             OpenAI: AI / GeoAI / transport scores
-→ rank_articles()              total_score descending
-→ threshold                    keep only total_score >= MIN_TOTAL_SCORE
-→ [:TOP_RANKED]                up to Top 8
-→ generate_digest()            OpenAI summary + "why it matters"
-→ save_digest()                Markdown file in output/
-```
-
-### Where LLM capabilities are currently used
-
-```text
-scoring.py
-→ relevance judgement and structured 1–5 scores
-
-digest.py
-→ 2–3 sentence summary + "why it matters"
-
-esri_search.py
-→ web-search-assisted Esri discovery + structured search results
-```
-
-Everything else — RSS retrieval, scraping, filtering, deduplication, ranking, and file writing — is conventional deterministic code.
-
-### Scoring
-
-OpenAI structured output (`client.responses.parse` with Pydantic `ArticleScore`) on the title and source summary. Three criteria, each an integer 1–5:
-
-- `ai_score` — artificial intelligence
-- `geoai_score` — GIS, geospatial, spatial analytics, mapping, digital twins, GeoAI
-- `transport_score` — land transport: roads, rail, buses, traffic, mobility, planning, operations
-
-`total_score = ai_score × geoai_score × transport_score` (range 1–125).
-
-The product deliberately rewards intersection across all three themes; e.g. 5×1×1 = 5 while 3×3×3 = 27.
 
 ### Article model (`models.py`)
 
@@ -406,48 +247,29 @@ class Article:
     source: str
     published_at: datetime | None
     summary: str | None
+    content: str | None = None      # full article text, when available
 
     ai_score: int | None = None
-    geoai_score: int | None = None
+    ai_reason: str | None = None
     transport_score: int | None = None
+    transport_reason: str | None = None
     total_score: int | None = None
 ```
 
-**Timestamp convention:** normalize `published_at` to timezone-aware UTC wherever possible.
+### Environment
 
-### Source status
+- `uv`, Python 3.11 (`requires-python = ">=3.10"`)
+- Corporate TLS: `uv sync --system-certs`, `uv add <package> --system-certs`
+- Dependencies: `feedparser`, `openai`, `requests`, `beautifulsoup4`, `trafilatura`, plus unused `playwright`; `pydantic` is used but not declared
+- `OPENAI_API_KEY` from the environment; `.env` files are git-ignored
+- Run modules with `-m`, e.g. `uv run python -m aimobility_news.main`
 
-Validate RSS sources with:
-
-```powershell
-uv run python -m aimobility_news.validate_feeds
-```
-
-| Source | Method | Status | Notes |
-|---|---|---|---|
-| GIM International | RSS | Commented out | Large feed, but often stale |
-| Geospatial World | RSS | Commented out | Geo / GIS source |
-| Open Geospatial Consortium | RSS | Commented out | Standards / geospatial |
-| QGIS Blog | RSS | Commented out | Useful but infrequent |
-| Planet OSGeo | RSS | Commented out | Non-fatal encoding warning observed |
-| Smart Cities Dive | RSS | Commented out | Fresh but broad/noisy |
-| GeoAI Signal | RSS via requests → feedparser | Active | 9 entries in test; strong but roughly weekly |
-| GeoAI Unpacked | RSS via requests → feedparser | Active | Fetch OK 2026-10-12; GeoAI source |
-| Geospatial Law | RSS via requests → feedparser | Active | Fetch OK 2026-10-12; governance / policy |
-| Straits Times (Singapore, Business) | RSS | Active | Fetch OK 2026-10-12; 26 of 35 recent items |
-| Business Times (6 sections) | RSS | Active | Fetch OK 2026-10-12; overlaps with ST (same story, different URLs) |
-| Esri ArcGIS Blog | OpenAI web search | Active | RSS 403 (re-checked 2026-10-12); requests / Playwright blocked |
-| AI Daily Brief | HTML scrape | Active | Fresh general-AI source; one edition = one Article; date-only (00:00 UTC) |
-| Medium — GeoAI | RSS | In `FEEDS2` (inactive) | HTTP 200 on 2026-10-12; candidate to promote |
-| ITS International | RSS | Failed | 404; revisit via alternate ingestion if worthwhile |
-| Sustainable Bus - ITS | RSS | Failed | 0 entries / parse issue |
-| Railway Gazette - Metro | RSS | Failed | 404 |
-
-A valuable source does not necessarily have a usable RSS feed; source-specific adapters are now an accepted part of the architecture.
-
-### Commit history carried forward from v0.1
+### Commit history
 
 ```text
+6581a8e Score on AI x transport with full article text; add timing and new feeds
+02807a8 Add v0.2 source adapters, relevance threshold, and fixed output path
+ada1962 Update checkpoint for MVP v0.1 completion and add roadmap
 b10c490 Reduce scoring.py __main__ to a single-article test
 8a47bfa Build MVP v0.1 for AI mobility news digest
 da2b07e Add ranking and Markdown digest generation; update checkpoint
@@ -458,28 +280,15 @@ a6914ad Add .gitignore
 ea73049 My first commit
 ```
 
-Add the new v0.2 commits here after committing today's source-ingestion work.
-
 ---
 
 ## Resume point
 
-MVP v0.1 remains complete. MVP v0.2 has made substantial progress on **source coverage and ingestion diversity**, but none of the v0.2 work is committed yet:
-
-- Esri search fallback works
-- RSS retrieval in `feeds.py` uses `requests → feedparser`
-- AI Daily Brief scraping is implemented with the correct title/summary selectors
-- Three Substacks, two Straits Times sections and six Business Times sections are in `FEEDS` and fetch successfully
-- `MIN_TOTAL_SCORE = 20` thresholding and configurable `TOP_RANKED = 8` are in place
-- `save_digest()` no longer overwrites same-day digests
-- `RECENT_HOURS` is now 24
+All work up to 2026-10-28 is committed and pushed. The pipeline scores on AI × transport (0–5 each) using full article text where available, including webpage fetching for Google Research, Google DeepMind and Hugging Face.
 
 Next:
 
-1. **Make source failures non-fatal** (try/except per feed and per adapter). This is the main blocker for reliable daily runs.
-2. Switch `validate_feeds.py` to `load_feed()`; add title-based deduplication.
-3. Clean up before committing: remove `playwright`, add `pydantic`, delete `substack.py` / `geoai_signal_feed.xml` / unused imports, and resolve `FEEDS2`.
-4. Commit the v0.2 source-ingestion work.
-5. Run the expanded source mix end-to-end over several days, check the GeoAI vs. general-news balance, and tune `MIN_TOTAL_SCORE`.
-
-Once that is stable, v0.2 should be ready to close.
+1. Restore production settings (`MIN_TOTAL_SCORE = 9`, `RECENT_HOURS = 24`) and decide the active feed set.
+2. Log per-article scores and reasons, run for several days, and tune the threshold.
+3. Add the "no relevant articles today" message.
+4. Work through the robustness and cleanup items, then close v0.2 and start the SQLite repository (v0.3).
