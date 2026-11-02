@@ -12,6 +12,7 @@ from . import llm
 from .scoring import score_articles
 from .ranking import rank_articles, classify_articles, select_for_digest
 from .digest import generate_digest, generate_debug_digest, save_digest
+from .pool import save_to_pool
 from .esri_search import fetch_esri_articles
 from .aidailybrief import fetch_aidailybrief_articles
 from .config import TOP_RANKED, MIN_TOTAL_SCORE
@@ -113,8 +114,12 @@ def main(provider: str | None = None):
         debug_digest = generate_debug_digest(ranked_articles, MIN_TOTAL_SCORE)
         debug_file_path = save_digest(debug_digest, prefix="debug-digest")
 
+        pool_path = save_to_pool(ranked_articles)
+
     print(f"Digest saved to: {file_path}")
     print(f"Debug digest saved to: {debug_file_path}")
+    if pool_path:
+        print(f"{len(ranked_articles)} articles added to pool: {pool_path}")
 
     print_timing_summary(time.perf_counter() - total_start)
 

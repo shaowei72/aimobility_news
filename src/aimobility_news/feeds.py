@@ -253,7 +253,7 @@ def inspect_article_webpage(source: str, limit: int = 5):
 
             if text:
                 print(f"Extracted words: {len(text.split())}")
-                print(f"Preview: {text[:1300]}")
+                print(f"Preview: {text[:5000]}")
             else:
                 print("Failed to extract article text")
 
@@ -264,8 +264,8 @@ def inspect_article_webpage(source: str, limit: int = 5):
 
 
 if __name__ == "__main__":
-    inspect_article_webpage("Google Research")
-    inspect_article_webpage("Google DeepMind")
+    inspect_article_webpage("TechCrunch Transportation")
+    # inspect_article_webpage("Google DeepMind")
 
     # inspect_feed_structure("Google Research")
     # inspect_feed_structure("Google DeepMind")

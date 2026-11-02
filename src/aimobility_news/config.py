@@ -12,7 +12,7 @@ FEEDS_transport = {
     "ADAS Autonomous Vehicle International": "https://www.autonomousvehicleinternational.com/feed/",
 
     # Robotics and autonomous systems
-    "The Robot Report": "https://www.therobotreport.com/feed/",
+    # "The Robot Report": "https://www.therobotreport.com/feed/",
     "IEEE Spectrum Robotics": "https://spectrum.ieee.org/rss/blog/automaton/fulltext",
 
     # Transport operations and smart cities
@@ -92,11 +92,11 @@ PAGE_FETCH_SOURCES = {
 
 FEEDS = {
     **FEEDS_transport,
-    # **FEEDS_AI,
-    # **FEEDS_gis,
+    **FEEDS_AI,
+    **FEEDS_gis,
 }
 
-RECENT_HOURS = 72
+RECENT_HOURS = 24
 # total = (transport + 1) x (ai + gis + 1) - 1, range 0-65 (see scoring.py).
 # 11 = some transport link plus AI/GIS, e.g. T2 + A3, T3 + A2; nothing without
 # transport passes (max 10). 15 = T3 + A3, roughly the old 9 on AI x transport.
@@ -138,6 +138,11 @@ OLLAMA_MAX_ATTEMPTS = 2            # retries when the output fails schema valida
 # One CSV row per LLM call (tokens, timing, status), appended across runs.
 # Relative to the project root; set to None to disable.
 LLM_CALL_LOG = "output/llm-calls.csv"
+
+# Every run appends its scored articles (text, scores, reasons) here, one JSON
+# object per line: the pool the evaluation dataset is picked from.
+# Relative to the project root; set to None to disable.
+SCORED_POOL = "output/scored-articles.jsonl"
 
 # Cap on full-text words sent to the LLM for scoring
 MAX_CONTENT_WORDS = 1500
