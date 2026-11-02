@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from . import llm
 from .models import Article
 from .scoring import text_for_scoring
-from .ranking import QUALIFIED, NOTABLE, BELOW_THRESHOLD
+from .ranking import QUALIFIED, NOTABLE, BELOW_THRESHOLD, SCORING_FAILED
 
 
 # Project root (two levels above src/aimobility_news/), so digests always
@@ -46,7 +46,7 @@ Source:
 {text}
 """
 
-    return llm.parse(prompt, DigestEntry, task="digest")
+    return llm.parse(prompt, DigestEntry, task="digest", label=article.title)
 
 
 def score_breakdown(article: Article) -> str:
@@ -57,17 +57,25 @@ def score_breakdown(article: Article) -> str:
 
 
 def append_article_entry(lines: list[str], number: int, article: Article):
-    digest_entry = generate_article_digest(article)
+    # A failed summary call keeps the article in the digest without a summary
+    try:
+        digest_entry = generate_article_digest(article)
+        summary = digest_entry.summary
+        why_it_matters = digest_entry.why_it_matters
+    except Exception as e:
+        print(f"WARNING: digest summary failed for {article.title!r}: {type(e).__name__}: {e}")
+        summary = "_Summary unavailable (LLM call failed)._"
+        why_it_matters = "_Unavailable._"
 
     lines.append(f"### {number}. {article.title}")
     lines.append("")
     lines.append(f"**Source:** {article.source}")
     lines.append(f"**Score:** {score_breakdown(article)}")
     lines.append("")
-    lines.append(digest_entry.summary)
+    lines.append(summary)
     lines.append("")
     lines.append(
-        f"**Why it matters:** {digest_entry.why_it_matters}"
+        f"**Why it matters:** {why_it_matters}"
     )
     lines.append("")
     lines.append(f"[Read article]({article.url})")
@@ -119,7 +127,7 @@ def generate_debug_digest(
     # Every scored article, highest total first, with its scores and reasons,
     # for tuning the rubric and thresholds. No LLM calls.
     def status(article: Article) -> str:
-        if article.digest_status == BELOW_THRESHOLD:
+        if article.digest_status in (BELOW_THRESHOLD, SCORING_FAILED):
             return article.digest_status
         if article.published:
             return f"{article.digest_status}, published"
@@ -142,7 +150,8 @@ def generate_debug_digest(
     lines.append("")
     lines.append(
         f"{len(ranked_articles)} scored: {count(QUALIFIED)} qualified, "
-        f"{count(NOTABLE)} notable, {count(BELOW_THRESHOLD)} below threshold; "
+        f"{count(NOTABLE)} notable, {count(BELOW_THRESHOLD)} below threshold, "
+        f"{count(SCORING_FAILED)} scoring failed; "
         f"{published} published. MIN_TOTAL_SCORE = {min_total_score}"
     )
     lines.append("")
@@ -179,6 +188,8 @@ def generate_debug_digest(
         lines.append(f"**Scored on:** {text_label} ({words} words)")
         lines.append(f"**Scored by:** {article.scored_by}")
         lines.append(f"**Score:** {score_breakdown(article)}")
+        if article.scoring_error:
+            lines.append(f"**Scoring error:** {article.scoring_error}")
         lines.append("")
         lines.append(f"**Transport reason:** {article.transport_reason}")
         lines.append("")

@@ -10,6 +10,7 @@ from .models import Article
 QUALIFIED = "qualified"
 NOTABLE = "notable"
 BELOW_THRESHOLD = "below threshold"
+SCORING_FAILED = "scoring failed"
 
 
 def rank_articles(articles: list[Article]) -> list[Article]:
@@ -24,6 +25,10 @@ def classify_article(article: Article) -> str:
     # qualified: total_score reaches MIN_TOTAL_SCORE
     # notable:   otherwise, any one domain reaches its NOTABLE_MIN_* score
     # below threshold: everything else
+    # scoring failed: no scores (never published)
+    if article.scoring_error:
+        return SCORING_FAILED
+
     if (article.total_score or 0) >= MIN_TOTAL_SCORE:
         return QUALIFIED
 

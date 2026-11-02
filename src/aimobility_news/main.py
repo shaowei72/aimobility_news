@@ -100,6 +100,7 @@ def main(provider: str | None = None):
     print(
         f"Qualified: {statuses.count('qualified')}, "
         f"notable: {statuses.count('notable')}, "
+        f"scoring failed: {statuses.count('scoring failed')}, "
         f"published: {len(published)}"
     )
 

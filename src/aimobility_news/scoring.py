@@ -1,17 +1,19 @@
 from .models import Article
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from . import llm
 from .config import MAX_CONTENT_WORDS
 
 # Reasons come before scores so the model explains first, then scores.
 # Field order follows the prompt: transport, AI, GIS.
+# Scores are bounded 0-5: Ollama and OpenAI receive the bounds in the JSON
+# schema, and Pydantic rejects anything outside them (which triggers a retry).
 class ArticleScore(BaseModel):
     transport_reason: str
-    transport_score: int
+    transport_score: int = Field(ge=0, le=5)
     ai_reason: str
-    ai_score: int
+    ai_score: int = Field(ge=0, le=5)
     gis_reason: str
-    gis_score: int
+    gis_score: int = Field(ge=0, le=5)
 
 def text_for_scoring(article: Article) -> tuple[str, str | None]:
     # Prefer the full article text when the feed provides it, capped for cost
@@ -285,7 +287,9 @@ Article title:
 {text}
 """
 
-    scores = llm.parse(prompt, ArticleScore, task="scoring")
+    scores = llm.parse(
+        prompt, ArticleScore, task="scoring", label=article.title
+    )
     article.scored_by = llm.describe("scoring")
 
     article.transport_score = scores.transport_score
@@ -302,11 +306,31 @@ Article title:
     return article
 
 def score_articles(articles: list[Article]) -> list[Article]:
+    # One article failing (invalid output after retries, timeout, HTTP error)
+    # is recorded on the article and the run continues. If every article
+    # fails, the provider itself is probably down, so stop.
     scored_articles = []
+    failures = 0
 
     for article in articles:
-        scored_article = score_article(article)
+        try:
+            scored_article = score_article(article)
+        except Exception as e:
+            failures += 1
+            article.scored_by = llm.describe("scoring")
+            article.scoring_error = f"{type(e).__name__}: {e}"
+            print(f"WARNING: scoring failed for {article.title!r}: {article.scoring_error}")
+            scored_article = article
         scored_articles.append(scored_article)
+
+    if articles and failures == len(articles):
+        raise RuntimeError(
+            f"Scoring failed for all {failures} articles; last error: "
+            f"{scored_articles[-1].scoring_error}"
+        )
+
+    if failures:
+        print(f"Scoring failed for {failures} of {len(articles)} articles")
 
     return scored_articles
 

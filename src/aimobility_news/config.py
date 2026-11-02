@@ -92,8 +92,8 @@ PAGE_FETCH_SOURCES = {
 
 FEEDS = {
     **FEEDS_transport,
-    **FEEDS_AI,
-    **FEEDS_gis,
+    # **FEEDS_AI,
+    # **FEEDS_gis,
 }
 
 RECENT_HOURS = 72
@@ -134,6 +134,10 @@ OLLAMA_TEMPERATURE = 0
 OLLAMA_THINK = False               # True / False for thinking models; None = model default
 OLLAMA_TIMEOUT = 300               # seconds per call
 OLLAMA_MAX_ATTEMPTS = 2            # retries when the output fails schema validation
+
+# One CSV row per LLM call (tokens, timing, status), appended across runs.
+# Relative to the project root; set to None to disable.
+LLM_CALL_LOG = "output/llm-calls.csv"
 
 # Cap on full-text words sent to the LLM for scoring
 MAX_CONTENT_WORDS = 1500
