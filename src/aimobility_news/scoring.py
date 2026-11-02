@@ -6,11 +6,14 @@ from .config import SCORING_MODEL, MAX_CONTENT_WORDS
 client = OpenAI()
 
 # Reasons come before scores so the model explains first, then scores.
+# Field order follows the prompt: transport, AI, GIS.
 class ArticleScore(BaseModel):
-    ai_reason: str
-    ai_score: int
     transport_reason: str
     transport_score: int
+    ai_reason: str
+    ai_score: int
+    gis_reason: str
+    gis_score: int
 
 def text_for_scoring(article: Article) -> tuple[str, str | None]:
     # Prefer the full article text when the feed provides it, capped for cost
@@ -20,132 +23,269 @@ def text_for_scoring(article: Article) -> tuple[str, str | None]:
     return "Article summary", article.summary
 
 
+def combine_scores(transport: int, ai: int, gis: int) -> int:
+    # (transport + 1) x (ai + gis + 1) - 1, range 0-65. Equivalent to
+    # transport + ai + gis + transport x (ai + gis): each domain adds a little
+    # on its own (at most 5, or 10 for AI + GIS without transport), and
+    # transport combined with AI and/or GIS multiplies.
+    return (transport + 1) * (ai + gis + 1) - 1
+
+
 def score_article(article: Article) -> Article:
     text_label, text = text_for_scoring(article)
 
     prompt = f"""
-        Evaluate the relevance of this news article for a daily briefing on
-        AI and GeoAI applied to land transport.
+Evaluate the relevance and significance of this news article for a
+daily briefing covering three domains:
 
-        Score each criterion as an integer from 0 to 5, and give a
-        one-sentence reason for each score.
+1. Land Transport
+2. Artificial Intelligence (AI)
+3. Geographic Information Systems (GIS) and GeoAI
 
-        - ai_score:
-        How relevant is this article to artificial intelligence, with emphasis
-        on GeoAI: AI applied to spatial or location data, such as satellite,
-        aerial or street-level imagery, LiDAR and point clouds, GPS and
-        movement trajectories, road and map networks, digital twins, and GIS
-        platforms?
+Score each domain independently, using an integer from 0 to 5.
+Provide a one-sentence reason explaining each score.
 
-        - transport_score:
-        How relevant is this article to land transport, with emphasis on the
-        use of GIS and geospatial data in transport: road and rail networks,
-        transit routes and stops, traffic and movement data, transport assets
-        and infrastructure as mapped, located or spatially analysed?
+The objective is to identify substantive news, technological
+developments, operational deployments, research breakthroughs,
+and policy developments relevant to these domains.
 
-        Land transport covers roads, rail, MRT/LRT, buses, taxis and
-        ride-hailing, cycling, walking, micromobility, and land freight and
-        logistics. Aviation and maritime are out of scope unless the article
-        concerns their land-side connections.
+An article does not need to cover more than one domain to
+receive a high score.
 
-        The scoring rubric for the ai_score is as follows:
-        0 = No AI content.
-        1 = AI is mentioned only in passing or as a buzzword (e.g. "AI-powered"
-            with no detail about what the AI does).
-        2 = General AI news with substance but no concrete application: models,
-            chips, funding, acquisitions, regulation, AI company strategy.
-        3 = A concrete AI application or deployment that does not rely on spatial
-            data: e.g. chatbots, predictive maintenance from sensor logs, demand
-            forecasting from ticketing data, AI for document processing.
-        4 = AI applied to spatial or location data is a significant part of the
-            article: e.g. computer vision on road or traffic camera imagery,
-            trajectory or GPS analytics, AI-based mapping, location-aware
-            prediction (where and when congestion or incidents will occur).
-        5 = GeoAI is the central subject: a new GeoAI method, model, dataset,
-            product or deployment; geospatial foundation models; AI features in
-            GIS platforms (e.g. ArcGIS, QGIS); AI extraction of features from
-            imagery or point clouds.
+------------------------------------------------------------
+1. LAND TRANSPORT RELEVANCE (transport_score)
+------------------------------------------------------------
 
-        The scoring rubric for the transport_score is as follows:
-        0 = No land transport content.
-        1 = Transport is mentioned only in passing (e.g. a company that also has
-            logistics customers, a commute mentioned in a lifestyle story).
-        2 = Transport is the subject, but the news is routine and has no planning,
-            operational or policy substance: individual accidents, fare changes,
-            vehicle launches, transport company earnings or appointments.
-        3 = Substantive land transport planning, operations, policy,
-            infrastructure or technology, without a meaningful spatial element:
-            e.g. rail maintenance programmes, fleet electrification policy,
-            ticketing systems, ridership trends, transport regulation.
-        4 = Spatial or location data is a significant part of the transport
-            story: e.g. route or network planning using maps, GPS fleet or vehicle
-            tracking, traffic flow or congestion by location, accessibility or
-            catchment analysis, siting of stations, depots or EV chargers, road
-            asset inventories.
-        5 = GIS or geospatial technology for transport is the central subject:
-            e.g. transport GIS platforms, mapping or digital twins of road or rail
-            networks, HD maps for vehicles, spatial analytics for network or land
-            use–transport planning, mobility data standards (e.g. GTFS, OGC).
+Assess the relevance and significance of the article to
+land transport, with particular interest in Singapore,
+intelligent transport systems (ITS), transport operations,
+technology adoption, infrastructure and policy.
 
-        General rules:
-        - Score only what the title and article text actually say. Do not infer
-          AI, spatial or transport content that is not stated, even if the
-          technology plausibly involves it.
-        - Score each criterion independently. An article can be high on
-          both, high on one and 0 on the other, or 0 on both.
-        - If an article sits between two levels, choose the lower one.
-        - If the article text is missing or very short, score from the
-          title alone and be conservative.
-        - When the full article text is given, score on its main subject;
-          a passing mention in a long article does not raise a score.
-        - Marketing language ("smart", "AI-powered", "next-generation")
-          without detail does not raise a score above 1.
+Land transport includes:
+- Road networks, traffic operations and traffic management
+- Rail, MRT, LRT and railway systems
+- Buses, taxis, ride-hailing and public transport
+- Autonomous vehicles and connected vehicles
+- Cycling, walking and micromobility
+- Land freight, trucking and logistics
+- Transport planning, infrastructure and regulation
+- Transport safety, enforcement and sustainability
+- Transport data, digital platforms and intelligent systems
 
-        Borderline guidance for ai_score:
-        - "Algorithms", "analytics", "automation", "sensors" or "data-driven"
-          are not AI unless machine learning, AI models or AI-based
-          prediction or detection are explicitly described.
-        - Conventional traffic simulation or optimisation models without
-          AI: 0–1.
-        - GeoAI with no transport content (e.g. agriculture, forestry,
-          land use, disaster mapping) still scores 4–5 on ai_score; the
-          transport criterion handles relevance to transport.
-        - Digital twins: 4–5 only if AI is actually used; a digital twin
-          without AI is 1 at most.
-        - AI regulation or policy specific to transport (e.g. autonomous
-          vehicle laws): 2.
-        - Newsletters or round-ups covering many topics: score only what
-          is described in the article text; a single item among many unrelated
-          ones scores no higher than 2.
+Aviation and maritime are excluded unless the article
+substantially concerns their land-side transport connections.
 
-        Borderline guidance for transport_score:
-        - Autonomous vehicles: 3 for trials, regulation or business news;
-          4–5 if the focus is mapping, localisation, or operating areas and
-          routes.
-        - EVs: a vehicle launch is 2; charging policy is 3; spatial
-          planning of a charging network is 4.
-        - Ride-hailing and navigation apps: business or pricing news is 2;
-          matching or dispatch operations is 3; routing, ETA prediction or
-          map features is 4–5.
-        - Freight and logistics: road or rail freight operations count as
-          land transport; warehouse-only operations, e-commerce or supply
-          chain finance score 1 at most.
-        - Delivery drones, aviation and maritime: 0, unless the article
-          concerns their land-side connections (e.g. airport rail links,
-          port-to-road freight), which score up to 3.
-        - Smart city stories: score only the land transport content, not
-          the smart city framing.
-        - Property, land or urban development: 0–1 unless transport access,
-          stations or networks are a substantive part of the story.
-        - Disasters or weather (e.g. floods, landslides): 3–4 only if
-          impacts on roads, rail or transport operations are discussed.
+Scoring rubric:
 
-        Article title:
-        {article.title}
+0 = No meaningful connection to land transport.
 
-        {text_label}:
-        {text}
-        """
+1 = Land transport is mentioned only incidentally,
+    without substantive transport information.
+
+2 = Routine or general transport news with limited
+    strategic, technological, operational or policy relevance.
+    Examples: individual accidents, routine vehicle launches,
+    minor fare announcements, company earnings or appointments.
+
+3 = Substantive transport development involving planning,
+    operations, infrastructure, policy or technology.
+    Examples: new rail maintenance programmes, fleet
+    electrification strategies, public transport reforms,
+    mobility platforms or significant ridership developments.
+
+4 = Significant transport innovation, operational deployment,
+    policy change or technology advancement.
+    Examples: AI-enabled traffic control, autonomous bus
+    trials, predictive rail maintenance, major ITS deployments,
+    integrated mobility platforms or network optimisation.
+
+5 = Highly consequential transport development with major
+    implications for transport operations, technology,
+    policy, safety or future mobility.
+    Examples: large-scale autonomous vehicle deployment,
+    transformative traffic management systems, major
+    intelligent transport initiatives, significant regulatory
+    changes or breakthrough transport technologies.
+
+Singapore relevance:
+- Give particular consideration to developments directly
+  affecting Singapore's land transport ecosystem.
+- International developments can score equally highly
+  if their significance warrants it.
+- Geographic proximity alone does not justify a high score.
+
+
+------------------------------------------------------------
+2. ARTIFICIAL INTELLIGENCE RELEVANCE (ai_score)
+------------------------------------------------------------
+
+Assess the relevance and significance of the article to
+artificial intelligence technology, research, applications,
+deployment, governance and industry transformation.
+
+Particular interests include:
+- Foundation models, LLMs and multimodal AI
+- Agentic AI and autonomous systems
+- Robotics, physical AI and embodied intelligence
+- Computer vision and perception systems
+- AI reasoning, planning and decision-making
+- AI for science and engineering
+- AI applications in industry and enterprise productivity
+- AI in transport and infrastructure operations
+- AI safety, security, governance and responsible AI
+- AI platforms, infrastructure and deployment engineering
+
+Scoring rubric:
+
+0 = No meaningful AI content.
+
+1 = AI is mentioned only incidentally or as a marketing
+    buzzword, without explaining the technology or application.
+
+2 = General AI news with some substance but limited technical
+    or application significance.
+    Examples: routine funding announcements, company
+    announcements, broad AI adoption trends or incremental
+    product updates.
+
+3 = Substantive AI technology development or concrete
+    application with identifiable capabilities or benefits.
+    Examples: enterprise AI agents, predictive maintenance
+    models, AI-driven business processes, new model
+    capabilities or practical computer vision applications.
+
+4 = Significant AI advancement, innovative application or
+    operational deployment with meaningful implications.
+    Examples: important advances in model capabilities,
+    agentic automation, robotics intelligence, industrial AI,
+    AI safety engineering or large-scale AI adoption.
+
+5 = Highly consequential AI development, major breakthrough
+    or transformative deployment with broad technological,
+    industrial or operational implications.
+    Examples: major advances in AI architectures, reasoning
+    or autonomy; important foundation model innovations;
+    transformative AI deployments; or landmark AI safety
+    and governance developments.
+
+AI relevance is assessed independently of transport and GIS.
+An important AI development can score 5 even when it has
+no transport or geospatial application.
+
+
+------------------------------------------------------------
+3. GIS AND GEOAI RELEVANCE (gis_score)
+------------------------------------------------------------
+
+Assess the relevance and significance of the article to
+geographic information systems, geospatial technologies,
+spatial data, location intelligence and GeoAI.
+
+GIS and geospatial technology include:
+- GIS platforms, tools and spatial analytics
+- Geospatial data infrastructure and standards
+- Satellite, aerial and street-level imagery
+- Remote sensing and earth observation
+- LiDAR, point clouds and 3D spatial modelling
+- GNSS, GPS, positioning and navigation
+- Location intelligence and trajectory analytics
+- Digital twins with meaningful geospatial components
+- Spatial databases, spatial computing and mapping
+- Geospatial foundation models and GeoAI
+- AI applied to imagery, maps, trajectories and spatial data
+- Geospatial applications in transport, cities,
+  infrastructure, environment and public services
+
+Scoring rubric:
+
+0 = No meaningful GIS or geospatial content.
+
+1 = Geographic location, maps or spatial data are mentioned
+    only incidentally, without substantive geospatial content.
+
+2 = General GIS or geospatial news with limited technical
+    or application significance.
+    Examples: routine map updates, minor product releases,
+    general satellite announcements or industry news.
+
+3 = Substantive GIS technology development, spatial analytics
+    application or geospatial deployment.
+    Examples: new spatial datasets, remote sensing applications,
+    GIS-enabled planning, location analytics or operational
+    mapping platforms.
+
+4 = Significant GIS or GeoAI advancement, innovative spatial
+    technology or consequential operational deployment.
+    Examples: advanced geospatial analytics, 3D city models,
+    digital twin deployments, AI-enhanced remote sensing,
+    major GIS platform innovations or geospatial data
+    infrastructure developments.
+
+5 = Highly consequential GIS or GeoAI innovation, breakthrough
+    or transformative deployment with major implications
+    for spatial intelligence or geospatial technology.
+    Examples: geospatial foundation models, breakthrough
+    spatial AI methods, major geospatial platform advances,
+    transformative spatial digital twins or significant
+    geospatial data infrastructure innovations.
+
+GIS relevance does not require AI or transport content.
+An important conventional GIS development can score 5
+even when no AI technology is involved.
+
+
+------------------------------------------------------------
+GENERAL SCORING RULES
+------------------------------------------------------------
+
+1. Score each of the three domains independently.
+
+2. Do not require overlap between domains.
+   An article may score 5 in one domain and 0 in the others.
+
+3. Assess both topical relevance and the significance
+   of the development within each domain.
+
+4. Score only information supported by the article.
+   Do not infer AI, GIS or transport capabilities that
+   are not described.
+
+5. Judge the article's main subject, not isolated keywords
+   or passing mentions.
+
+6. A concrete operational deployment or significant applied
+   innovation may score as highly as a research breakthrough.
+
+7. Do not reward marketing language such as "AI-powered",
+   "smart", "next-generation" or "revolutionary" unless
+   supported by substantive details.
+
+8. If an article sits between two scoring levels,
+   choose the lower score.
+
+9. When the article contains insufficient information,
+   score conservatively rather than inventing details.
+
+10. Singapore relevance is important for Transport,
+    but international developments should be assessed
+    on their own significance and potential applicability.
+
+11. Avoid inflating scores simply because an article
+    originates from a specialist publisher.
+
+12. Provide a concise, evidence-based, one-sentence
+    explanation for each domain score.
+
+Return the three scores and their explanations using
+the existing structured output schema.
+
+
+Article title:
+{article.title}
+
+{text_label}:
+{text}
+"""
 
     response = client.responses.parse(
         model=SCORING_MODEL,
@@ -155,13 +295,16 @@ def score_article(article: Article) -> Article:
 
     scores = response.output_parsed
 
-    article.ai_score = scores.ai_score
-    article.ai_reason = scores.ai_reason
     article.transport_score = scores.transport_score
     article.transport_reason = scores.transport_reason
+    article.ai_score = scores.ai_score
+    article.ai_reason = scores.ai_reason
+    article.gis_score = scores.gis_score
+    article.gis_reason = scores.gis_reason
 
-    # Product: an article must be relevant to both AI and land transport.
-    article.total_score = article.ai_score * article.transport_score
+    article.total_score = combine_scores(
+        article.transport_score, article.ai_score, article.gis_score
+    )
 
     return article
 
@@ -187,9 +330,10 @@ if __name__ == "__main__":
     scored_article = score_article(test_article)
 
     print(scored_article.title)
-    print(f"AI score: {scored_article.ai_score} — {scored_article.ai_reason}")
     print(
         f"Transport score: {scored_article.transport_score} — "
         f"{scored_article.transport_reason}"
     )
+    print(f"AI score: {scored_article.ai_score} — {scored_article.ai_reason}")
+    print(f"GIS score: {scored_article.gis_score} — {scored_article.gis_reason}")
     print(f"Total score: {scored_article.total_score}")

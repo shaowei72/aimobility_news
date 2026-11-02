@@ -57,8 +57,35 @@ Source:
     return response.output_parsed
 
 
+def score_breakdown(article: Article) -> str:
+    return (
+        f"{article.total_score} (Transport {article.transport_score}, "
+        f"AI {article.ai_score}, GIS {article.gis_score})"
+    )
 
-def generate_digest(articles: list[Article]) -> str:
+
+def append_article_entry(lines: list[str], number: int, article: Article):
+    digest_entry = generate_article_digest(article)
+
+    lines.append(f"### {number}. {article.title}")
+    lines.append("")
+    lines.append(f"**Source:** {article.source}")
+    lines.append(f"**Score:** {score_breakdown(article)}")
+    lines.append("")
+    lines.append(digest_entry.summary)
+    lines.append("")
+    lines.append(
+        f"**Why it matters:** {digest_entry.why_it_matters}"
+    )
+    lines.append("")
+    lines.append(f"[Read article]({article.url})")
+    lines.append("")
+
+
+def generate_digest(
+    articles: list[Article],
+    also_notable: list[Article] | None = None,
+) -> str:
     lines = []
 
     today = datetime.now().strftime("%Y-%m-%d")
@@ -68,33 +95,101 @@ def generate_digest(articles: list[Article]) -> str:
     lines.append("")
 
     for i, article in enumerate(articles, start=1):
-        digest_entry = generate_article_digest(article)
+        append_article_entry(lines, i, article)
+
+    if also_notable:
+        lines.append("## Also notable (strong in one domain)")
+        lines.append("")
+
+        for i, article in enumerate(also_notable, start=len(articles) + 1):
+            append_article_entry(lines, i, article)
+
+    return "\n".join(lines)
+
+
+def generate_debug_digest(
+    ranked_articles: list[Article],
+    selected: list[Article],
+    also_notable: list[Article],
+    min_total_score: int,
+) -> str:
+    # Every scored article with its scores and reasons, for tuning the rubric
+    # and threshold. No LLM calls: only scoring output is shown.
+    selected_urls = {article.url for article in selected}
+    notable_urls = {article.url for article in also_notable}
+
+    def status(article: Article) -> str:
+        if article.url in selected_urls:
+            return "selected"
+        if article.url in notable_urls:
+            return "also notable"
+        if (article.total_score or 0) >= min_total_score:
+            return "qualified, over Top N"
+        return "below threshold"
+
+    lines = []
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    lines.append("# AI × Transport — Debug")
+    lines.append(f"## All scored articles — {today}")
+    lines.append("")
+    lines.append(
+        f"{len(ranked_articles)} scored, {len(selected)} selected, "
+        f"{len(also_notable)} also notable, "
+        f"MIN_TOTAL_SCORE = {min_total_score}"
+    )
+    lines.append("")
+
+    lines.append(
+        "| # | Status | Total | Transport | AI | GIS | Source | Title |"
+    )
+    lines.append("|---|---|---|---|---|---|---|---|")
+
+    for i, article in enumerate(ranked_articles, start=1):
+        title = article.title.replace("|", "\\|")
+        lines.append(
+            f"| {i} | {status(article)} | {article.total_score} "
+            f"| {article.transport_score} | {article.ai_score} "
+            f"| {article.gis_score} | {article.source} | {title} |"
+        )
+
+    lines.append("")
+
+    for i, article in enumerate(ranked_articles, start=1):
+        text_label, text = text_for_scoring(article)
+        words = len(text.split()) if text else 0
 
         lines.append(f"### {i}. {article.title}")
         lines.append("")
+        lines.append(f"**Status:** {status(article)}")
         lines.append(f"**Source:** {article.source}")
-        lines.append(f"**Score:** {article.total_score}")
+        lines.append(f"**Published:** {article.published_at}")
+        lines.append(f"**Scored on:** {text_label} ({words} words)")
+        lines.append(f"**Score:** {score_breakdown(article)}")
         lines.append("")
-        lines.append(digest_entry.summary)
+        lines.append(f"**Transport reason:** {article.transport_reason}")
         lines.append("")
-        lines.append(
-            f"**Why it matters:** {digest_entry.why_it_matters}"
-        )
+        lines.append(f"**AI reason:** {article.ai_reason}")
+        lines.append("")
+        lines.append(f"**GIS reason:** {article.gis_reason}")
         lines.append("")
         lines.append(f"[Read article]({article.url})")
         lines.append("")
 
     return "\n".join(lines)
 
+
 def save_digest(
     digest: str,
-    output_dir: Path = PROJECT_ROOT / "output"
+    output_dir: Path = PROJECT_ROOT / "output",
+    prefix: str = "digest",
 ) -> Path:
     output_path = Path(output_dir)
 
     output_path.mkdir(exist_ok=True)
 
-    base_name = f"digest-{datetime.now():%Y-%m-%d}"
+    base_name = f"{prefix}-{datetime.now():%Y-%m-%d}"
     file_path = output_path / f"{base_name}.md"
 
     counter = 1
