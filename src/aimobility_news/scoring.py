@@ -1,9 +1,7 @@
 from .models import Article
 from pydantic import BaseModel
-from openai import OpenAI
-from .config import SCORING_MODEL, MAX_CONTENT_WORDS
-
-client = OpenAI()
+from . import llm
+from .config import MAX_CONTENT_WORDS
 
 # Reasons come before scores so the model explains first, then scores.
 # Field order follows the prompt: transport, AI, GIS.
@@ -287,13 +285,8 @@ Article title:
 {text}
 """
 
-    response = client.responses.parse(
-        model=SCORING_MODEL,
-        input=prompt,
-        text_format=ArticleScore,
-    )
-
-    scores = response.output_parsed
+    scores = llm.parse(prompt, ArticleScore, task="scoring")
+    article.scored_by = llm.describe("scoring")
 
     article.transport_score = scores.transport_score
     article.transport_reason = scores.transport_reason
@@ -319,6 +312,12 @@ def score_articles(articles: list[Article]) -> list[Article]:
 
 
 if __name__ == "__main__":
+    import sys
+
+    # Optional provider override: python -m aimobility_news.scoring ollama
+    if len(sys.argv) > 1:
+        llm.set_provider(sys.argv[1])
+
     test_article = Article(
         title="PwC and Esri to harness geospatial AI together",
         url="https://example.com/article",
@@ -329,6 +328,7 @@ if __name__ == "__main__":
 
     scored_article = score_article(test_article)
 
+    print(f"Scored by: {scored_article.scored_by}")
     print(scored_article.title)
     print(
         f"Transport score: {scored_article.transport_score} — "

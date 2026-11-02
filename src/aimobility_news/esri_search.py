@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from openai import OpenAI
 from pydantic import BaseModel
 
-from .config import SCORING_MODEL
+from .config import OPENAI_MODEL
 from .models import Article
 
 
@@ -46,7 +46,7 @@ For each article return:
 """
 
     response = client.responses.parse(
-        model=SCORING_MODEL,
+        model=OPENAI_MODEL,
         tools=[
             {
                 "type": "web_search",

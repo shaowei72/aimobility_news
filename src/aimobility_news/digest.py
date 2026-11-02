@@ -1,16 +1,13 @@
 from datetime import datetime
 from pathlib import Path
 
-from openai import OpenAI
 from pydantic import BaseModel
 
-from .config import SCORING_MODEL
+from . import llm
 from .models import Article
 from .scoring import text_for_scoring
 from .ranking import QUALIFIED, NOTABLE, BELOW_THRESHOLD
 
-
-client = OpenAI()
 
 # Project root (two levels above src/aimobility_news/), so digests always
 # land in <project>/output regardless of the current working directory.
@@ -49,13 +46,7 @@ Source:
 {text}
 """
 
-    response = client.responses.parse(
-        model=SCORING_MODEL,
-        input=prompt,
-        text_format=DigestEntry,
-    )
-
-    return response.output_parsed
+    return llm.parse(prompt, DigestEntry, task="digest")
 
 
 def score_breakdown(article: Article) -> str:
@@ -155,6 +146,11 @@ def generate_debug_digest(
         f"{published} published. MIN_TOTAL_SCORE = {min_total_score}"
     )
     lines.append("")
+    lines.append(
+        f"Scoring model: {llm.describe('scoring')}; "
+        f"digest model: {llm.describe('digest')}"
+    )
+    lines.append("")
 
     lines.append(
         "| # | Status | Total | Transport | AI | GIS | Source | Title |"
@@ -181,6 +177,7 @@ def generate_debug_digest(
         lines.append(f"**Source:** {article.source}")
         lines.append(f"**Published:** {article.published_at}")
         lines.append(f"**Scored on:** {text_label} ({words} words)")
+        lines.append(f"**Scored by:** {article.scored_by}")
         lines.append(f"**Score:** {score_breakdown(article)}")
         lines.append("")
         lines.append(f"**Transport reason:** {article.transport_reason}")

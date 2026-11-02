@@ -3,6 +3,9 @@
 # ============================================================
 
 FEEDS_transport = {
+    # Techcrunch
+    "TechCrunch Transportation": "https://techcrunch.com/category/transportation/feed/",
+
     # Autonomous vehicles and mobility
     "MIT Autonomous Vehicles": "https://news.mit.edu/topic/mitautonomous-vehicles-rss.xml",
     "InsideEVs Autonomous Vehicles": "https://insideevs.com/rss/category/autonomous-vehicles/",
@@ -70,9 +73,17 @@ FEEDS_gis = {
     "GeoAI unpacked": "https://geoaiunpacked.substack.com/feed/",
     "GeoAI and law": "https://geospatiallaw.substack.com/feed/",
 
-    # Previously tested geospatial publication
-    # "Geospatial World": "https://geospatialworld.net/feed",
 }
+
+
+# Sources whose feeds carry little or no article text. For recent articles
+# from these sources, the article webpage is fetched to get the full text.
+PAGE_FETCH_SOURCES = {
+    "Google Research",
+    "Google DeepMind",
+    "Hugging Face Blog",
+}
+
 
 
 # ============================================================
@@ -100,7 +111,29 @@ NOTABLE_MIN_TRANSPORT_SCORE = 3
 NOTABLE_MIN_AI_SCORE = 3
 NOTABLE_MIN_GIS_SCORE = 3
 
-SCORING_MODEL = "gpt-6.1-sol"
+
+TOP_RANKED = 8
+
+# ------------------------------------------------------------
+# LLM provider (see llm.py). main.py --provider overrides LLM_PROVIDER.
+# ------------------------------------------------------------
+LLM_PROVIDER = "openai"            # "openai" or "ollama"
+
+OPENAI_MODEL = "gpt-6.1-sol"       # also used by Esri search (web search)
+
+LLM_MODELS = {
+    "openai": {"scoring": OPENAI_MODEL, "digest": OPENAI_MODEL},
+    "ollama": {"scoring": "qwen3.5:9b", "digest": "qwen3.5:9b"},
+}
+
+OLLAMA_HOST = "http://localhost:11434"
+# Scoring prompt is ~2,500 tokens of rubric + up to MAX_CONTENT_WORDS of text.
+# Too small a context silently truncates the prompt.
+OLLAMA_NUM_CTX = 16384
+OLLAMA_TEMPERATURE = 0
+OLLAMA_THINK = False               # True / False for thinking models; None = model default
+OLLAMA_TIMEOUT = 300               # seconds per call
+OLLAMA_MAX_ATTEMPTS = 2            # retries when the output fails schema validation
 
 # Cap on full-text words sent to the LLM for scoring
 MAX_CONTENT_WORDS = 1500
@@ -108,12 +141,3 @@ MAX_CONTENT_WORDS = 1500
 # A feed summary at least this long is treated as the full article text
 FULL_TEXT_MIN_WORDS = 150
 
-# Sources whose feeds carry little or no article text. For recent articles
-# from these sources, the article webpage is fetched to get the full text.
-PAGE_FETCH_SOURCES = {
-    "Google Research",
-    "Google DeepMind",
-    "Hugging Face Blog",
-}
-
-TOP_RANKED = 8

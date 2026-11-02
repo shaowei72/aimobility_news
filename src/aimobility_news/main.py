@@ -1,3 +1,4 @@
+import argparse
 import time
 from contextlib import contextmanager
 
@@ -7,6 +8,7 @@ from .feeds import (
     deduplicate_articles,
     add_page_content,
 )
+from . import llm
 from .scoring import score_articles
 from .ranking import rank_articles, classify_articles, select_for_digest
 from .digest import generate_digest, generate_debug_digest, save_digest
@@ -34,14 +36,29 @@ def print_timing_summary(total):
     print(f"{'Total':<35} {total:6.1f}s")
 
 
-def main():
+def main(provider: str | None = None):
+    if provider:
+        llm.set_provider(provider)
+
+    print(
+        f"LLM provider: {llm.get_provider()} "
+        f"(scoring {llm.model_for('scoring')}, digest {llm.model_for('digest')})"
+    )
+
     timings.clear()
     total_start = time.perf_counter()
 
     with timed("Fetch RSS"):
         rss_articles = fetch_articles()
     with timed("Fetch Esri"):
-        esri_articles = fetch_esri_articles()
+        # Esri discovery always uses OpenAI web search, whatever the provider.
+        # A failure here (e.g. no OPENAI_API_KEY on a local-only run) skips
+        # Esri instead of aborting the run.
+        try:
+            esri_articles = fetch_esri_articles()
+        except Exception as e:
+            print(f"WARNING: Esri search skipped: {e}")
+            esri_articles = []
     with timed("Fetch AI Daily Brief"):
         aidailybrief_articles = fetch_aidailybrief_articles()
 
@@ -102,4 +119,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Generate the daily digest")
+    parser.add_argument(
+        "--provider",
+        choices=llm.PROVIDERS,
+        help="LLM provider for scoring and digest (default: LLM_PROVIDER in config.py)",
+    )
+    args = parser.parse_args()
+
+    main(provider=args.provider)
