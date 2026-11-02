@@ -1,4 +1,15 @@
+from .config import (
+    MIN_TOTAL_SCORE,
+    NOTABLE_MIN_TRANSPORT_SCORE,
+    NOTABLE_MIN_AI_SCORE,
+    NOTABLE_MIN_GIS_SCORE,
+)
 from .models import Article
+
+
+QUALIFIED = "qualified"
+NOTABLE = "notable"
+BELOW_THRESHOLD = "below threshold"
 
 
 def rank_articles(articles: list[Article]) -> list[Article]:
@@ -9,38 +20,43 @@ def rank_articles(articles: list[Article]) -> list[Article]:
     )
 
 
-def select_also_notable(
-    articles: list[Article],
-    exclude: list[Article],
+def classify_article(article: Article) -> str:
+    # qualified: total_score reaches MIN_TOTAL_SCORE
+    # notable:   otherwise, any one domain reaches its NOTABLE_MIN_* score
+    # below threshold: everything else
+    if (article.total_score or 0) >= MIN_TOTAL_SCORE:
+        return QUALIFIED
+
+    if (
+        (article.transport_score or 0) >= NOTABLE_MIN_TRANSPORT_SCORE
+        or (article.ai_score or 0) >= NOTABLE_MIN_AI_SCORE
+        or (article.gis_score or 0) >= NOTABLE_MIN_GIS_SCORE
+    ):
+        return NOTABLE
+
+    return BELOW_THRESHOLD
+
+
+def classify_articles(articles: list[Article]) -> list[Article]:
+    for article in articles:
+        article.digest_status = classify_article(article)
+    return articles
+
+
+def select_for_digest(
+    ranked_articles: list[Article],
     limit: int,
-    min_transport_score: int,
-    min_ai_score: int,
-    min_gis_score: int,
 ) -> list[Article]:
-    # Fills a thin digest with articles that are strong in any one domain
-    # on its own (transport, AI or GIS at or above its minimum),
-    # ranked by transport + AI + GIS.
-    if limit <= 0:
-        return []
-
-    excluded_urls = {article.url for article in exclude}
-
-    candidates = [
+    # Qualified and notable articles, highest total first, up to limit.
+    # Notable articles always score below MIN_TOTAL_SCORE, so in ranked
+    # order every qualified article comes before every notable one.
+    published = [
         article
-        for article in articles
-        if article.url not in excluded_urls
-        and (
-            (article.transport_score or 0) >= min_transport_score
-            or (article.ai_score or 0) >= min_ai_score
-            or (article.gis_score or 0) >= min_gis_score
-        )
-    ]
+        for article in ranked_articles
+        if article.digest_status in (QUALIFIED, NOTABLE)
+    ][:limit]
 
-    candidates.sort(
-        key=lambda article: (article.transport_score or 0)
-        + (article.ai_score or 0)
-        + (article.gis_score or 0),
-        reverse=True
-    )
+    for article in published:
+        article.published = True
 
-    return candidates[:limit]
+    return published

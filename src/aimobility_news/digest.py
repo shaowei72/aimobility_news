@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from .config import SCORING_MODEL
 from .models import Article
 from .scoring import text_for_scoring
+from .ranking import QUALIFIED, NOTABLE, BELOW_THRESHOLD
 
 
 client = OpenAI()
@@ -82,26 +83,39 @@ def append_article_entry(lines: list[str], number: int, article: Article):
     lines.append("")
 
 
-def generate_digest(
-    articles: list[Article],
-    also_notable: list[Article] | None = None,
-) -> str:
+def generate_digest(ranked_articles: list[Article]) -> str:
+    # Publishes articles marked published by select_for_digest():
+    # qualified first, then notable under "Also notable".
+    qualified = [
+        article for article in ranked_articles
+        if article.published and article.digest_status == QUALIFIED
+    ]
+    notable = [
+        article for article in ranked_articles
+        if article.published and article.digest_status == NOTABLE
+    ]
+
     lines = []
 
     today = datetime.now().strftime("%Y-%m-%d")
 
-    lines.append("# AI × Transport")
+    lines.append("# GIS × AI × Transport")
     lines.append(f"## Daily Briefing — {today}")
     lines.append("")
 
-    for i, article in enumerate(articles, start=1):
+    if not qualified and not notable:
+        lines.append("No relevant articles today.")
+        lines.append("")
+        return "\n".join(lines)
+
+    for i, article in enumerate(qualified, start=1):
         append_article_entry(lines, i, article)
 
-    if also_notable:
+    if notable:
         lines.append("## Also notable (strong in one domain)")
         lines.append("")
 
-        for i, article in enumerate(also_notable, start=len(articles) + 1):
+        for i, article in enumerate(notable, start=len(qualified) + 1):
             append_article_entry(lines, i, article)
 
     return "\n".join(lines)
@@ -109,35 +123,36 @@ def generate_digest(
 
 def generate_debug_digest(
     ranked_articles: list[Article],
-    selected: list[Article],
-    also_notable: list[Article],
     min_total_score: int,
 ) -> str:
-    # Every scored article with its scores and reasons, for tuning the rubric
-    # and threshold. No LLM calls: only scoring output is shown.
-    selected_urls = {article.url for article in selected}
-    notable_urls = {article.url for article in also_notable}
-
+    # Every scored article, highest total first, with its scores and reasons,
+    # for tuning the rubric and thresholds. No LLM calls.
     def status(article: Article) -> str:
-        if article.url in selected_urls:
-            return "selected"
-        if article.url in notable_urls:
-            return "also notable"
-        if (article.total_score or 0) >= min_total_score:
-            return "qualified, over Top N"
-        return "below threshold"
+        if article.digest_status == BELOW_THRESHOLD:
+            return article.digest_status
+        if article.published:
+            return f"{article.digest_status}, published"
+        return f"{article.digest_status}, over max"
+
+    def count(status_value: str) -> int:
+        return sum(
+            1 for article in ranked_articles
+            if article.digest_status == status_value
+        )
+
+    published = sum(1 for article in ranked_articles if article.published)
 
     lines = []
 
     today = datetime.now().strftime("%Y-%m-%d")
 
-    lines.append("# AI × Transport — Debug")
+    lines.append("# GIS × AI × Transport — Debug")
     lines.append(f"## All scored articles — {today}")
     lines.append("")
     lines.append(
-        f"{len(ranked_articles)} scored, {len(selected)} selected, "
-        f"{len(also_notable)} also notable, "
-        f"MIN_TOTAL_SCORE = {min_total_score}"
+        f"{len(ranked_articles)} scored: {count(QUALIFIED)} qualified, "
+        f"{count(NOTABLE)} notable, {count(BELOW_THRESHOLD)} below threshold; "
+        f"{published} published. MIN_TOTAL_SCORE = {min_total_score}"
     )
     lines.append("")
 

@@ -18,3 +18,7 @@ class Article:
     gis_score: int | None = None
     gis_reason: str | None = None
     total_score: int | None = None   # combine_scores() in scoring.py, 0-65
+
+    # Set by classify_articles() / select_for_digest() in ranking.py
+    digest_status: str | None = None   # "qualified", "notable" or "below threshold"
+    published: bool = False            # included in the published digest

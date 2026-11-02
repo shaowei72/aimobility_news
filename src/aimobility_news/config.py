@@ -85,18 +85,18 @@ FEEDS = {
     **FEEDS_gis,
 }
 
-RECENT_HOURS = 24
+RECENT_HOURS = 72
 # total = (transport + 1) x (ai + gis + 1) - 1, range 0-65 (see scoring.py).
 # 11 = some transport link plus AI/GIS, e.g. T2 + A3, T3 + A2; nothing without
 # transport passes (max 10). 15 = T3 + A3, roughly the old 9 on AI x transport.
 MIN_TOTAL_SCORE = 11
 
-# If fewer than TOP_RANKED articles reach MIN_TOTAL_SCORE, fill the remaining
-# slots with articles that reach any one of these scores on its own, shown
-# under "Also notable". Set a value above 5 to disable that domain.
+# Articles below MIN_TOTAL_SCORE that reach any one of these scores on its own
+# are "notable" and published under "Also notable", after the qualified
+# articles, within TOP_RANKED. Set a value above 5 to disable that domain.
 # Rubric levels: 2 = routine/general news, 3 = substantive development,
 # 4 = significant advance or deployment, 5 = highly consequential.
-NOTABLE_MIN_TRANSPORT_SCORE = 2
+NOTABLE_MIN_TRANSPORT_SCORE = 3
 NOTABLE_MIN_AI_SCORE = 3
 NOTABLE_MIN_GIS_SCORE = 3
 

@@ -8,17 +8,11 @@ from .feeds import (
     add_page_content,
 )
 from .scoring import score_articles
-from .ranking import rank_articles, select_also_notable
+from .ranking import rank_articles, classify_articles, select_for_digest
 from .digest import generate_digest, generate_debug_digest, save_digest
 from .esri_search import fetch_esri_articles
 from .aidailybrief import fetch_aidailybrief_articles
-from .config import (
-    TOP_RANKED,
-    MIN_TOTAL_SCORE,
-    NOTABLE_MIN_TRANSPORT_SCORE,
-    NOTABLE_MIN_AI_SCORE,
-    NOTABLE_MIN_GIS_SCORE,
-)
+from .config import TOP_RANKED, MIN_TOTAL_SCORE
 
 
 timings = {}
@@ -81,37 +75,24 @@ def main():
     with timed(f"Score ({len(unique_articles)} articles)"):
         scored_articles = score_articles(unique_articles)
 
-    with timed("Rank + threshold"):
-        ranked_articles = rank_articles(scored_articles)
+    with timed("Rank + classify"):
+        ranked_articles = classify_articles(rank_articles(scored_articles))
+        published = select_for_digest(ranked_articles, limit=TOP_RANKED)
 
-        qualified_articles = [
-            article
-            for article in ranked_articles
-            if article.total_score >= MIN_TOTAL_SCORE
-        ]
+    statuses = [article.digest_status for article in ranked_articles]
+    print(
+        f"Qualified: {statuses.count('qualified')}, "
+        f"notable: {statuses.count('notable')}, "
+        f"published: {len(published)}"
+    )
 
-        top_N = qualified_articles[:TOP_RANKED]
-
-        also_notable = select_also_notable(
-            ranked_articles,
-            exclude=top_N,
-            limit=TOP_RANKED - len(top_N),
-            min_transport_score=NOTABLE_MIN_TRANSPORT_SCORE,
-            min_ai_score=NOTABLE_MIN_AI_SCORE,
-            min_gis_score=NOTABLE_MIN_GIS_SCORE,
-        )
-
-    print(f"Qualified: {len(top_N)}, also notable: {len(also_notable)}")
-
-    with timed(f"Generate digest ({len(top_N) + len(also_notable)} items)"):
-        digest = generate_digest(top_N, also_notable)
+    with timed(f"Generate digest ({len(published)} items)"):
+        digest = generate_digest(ranked_articles)
 
     with timed("Save"):
         file_path = save_digest(digest)
 
-        debug_digest = generate_debug_digest(
-            ranked_articles, top_N, also_notable, MIN_TOTAL_SCORE
-        )
+        debug_digest = generate_debug_digest(ranked_articles, MIN_TOTAL_SCORE)
         debug_file_path = save_digest(debug_digest, prefix="debug-digest")
 
     print(f"Digest saved to: {file_path}")
