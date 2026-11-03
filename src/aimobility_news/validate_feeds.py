@@ -57,4 +57,5 @@ def validate_feeds():
 
 if __name__ == "__main__":
     # FEEDS = {"TechCrunch Transportation": "https://techcrunch.com/category/transportation/feed/",}
+    FEEDS = {"The Verge Transportation": "https://www.theverge.com/rss/transportation/index.xml", "Electrek": "https://electrek.co/feed/",}
     validate_feeds()

@@ -61,10 +61,13 @@ def fetch_page_text(url: str) -> str | None:
 
 
 def add_page_content(articles):
-    # Only for sources in PAGE_FETCH_SOURCES, and only for articles that
-    # still lack full text. Call after filtering, so old entries are not fetched.
+    # Only for sources in PAGE_FETCH_SOURCES. The page is fetched even when the
+    # feed already gave enough text to count as full text (e.g. The Verge's
+    # ~150-word opening excerpts), and the longer of the two is kept. If the
+    # fetch fails, the feed's text stays. Call after filtering, so old entries
+    # are not fetched.
     for article in articles:
-        if article.source not in PAGE_FETCH_SOURCES or article.content:
+        if article.source not in PAGE_FETCH_SOURCES:
             continue
 
         try:
@@ -73,9 +76,12 @@ def add_page_content(articles):
             print(f"WARNING: page fetch failed for {article.url}: {e}")
             continue
 
-        if text and len(text.split()) >= FULL_TEXT_MIN_WORDS:
+        page_words = len(text.split()) if text else 0
+        feed_words = len(article.content.split()) if article.content else 0
+
+        if page_words >= FULL_TEXT_MIN_WORDS and page_words > feed_words:
             article.content = text
-        else:
+        elif not article.content:
             print(f"WARNING: no article text extracted from {article.url}")
 
     return articles
@@ -240,17 +246,13 @@ def inspect_article_webpage(source: str, limit: int = 5):
         print(f"Published: {published}")
         print(f"URL: {url}")
 
-        html = trafilatura.fetch_url(url)
-
-        if not html:
-            print("Failed to retrieve webpage")
+        # Same fetch as the pipeline (add_page_content), so a failure shows
+        # the HTTP status or network error instead of a bare None
+        try:
+            text = fetch_page_text(url)
+        except requests.RequestException as e:
+            print(f"Failed to retrieve webpage: {e}")
         else:
-            text = trafilatura.extract(
-                html,
-                include_comments=False,
-                include_tables=True
-            )
-
             if text:
                 print(f"Extracted words: {len(text.split())}")
                 print(f"Preview: {text[:5000]}")
@@ -264,7 +266,8 @@ def inspect_article_webpage(source: str, limit: int = 5):
 
 
 if __name__ == "__main__":
-    inspect_article_webpage("TechCrunch Transportation")
+    FEEDS = {"Electrek": "https://electrek.co/feed/",}
+    inspect_article_webpage("Electrek")
     # inspect_article_webpage("Google DeepMind")
 
     # inspect_feed_structure("Google Research")

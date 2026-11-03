@@ -3,8 +3,10 @@
 # ============================================================
 
 FEEDS_transport = {
-    # Techcrunch
+    # Tech and transport
     "TechCrunch Transportation": "https://techcrunch.com/category/transportation/feed/",
+    "The Verge Transportation": "https://www.theverge.com/rss/transportation/index.xml",
+    "Electrek": "https://electrek.co/feed/",
 
     # Autonomous vehicles and mobility
     "MIT Autonomous Vehicles": "https://news.mit.edu/topic/mitautonomous-vehicles-rss.xml",
@@ -28,8 +30,6 @@ FEEDS_transport = {
     "Railway Age": "https://www.railwayage.com/feed/",
 
     # Additional transport feeds to test
-    # "TechCrunch Transportation": "https://techcrunch.com/category/transportation/feed/",
-    # "The Verge Transportation": "https://www.theverge.com/rss/transportation/index.xml",
     # "Electrek": "https://electrek.co/feed/",
     # "Transport Topics": "https://www.ttnews.com/rss.xml",
 
@@ -79,6 +79,9 @@ FEEDS_gis = {
 # Sources whose feeds carry little or no article text. For recent articles
 # from these sources, the article webpage is fetched to get the full text.
 PAGE_FETCH_SOURCES = {
+    "Electrek",
+    "The Verge Transportation",
+    "TechCrunch Transportation",
     "Google Research",
     "Google DeepMind",
     "Hugging Face Blog",
