@@ -1,6 +1,6 @@
 # AI Mobility News App — Checkpoint
 
-_Last updated: 2026-11-03 — v0.4 (SQLite repository) complete (section 4); v0.5 (WhatsApp-ready digest) next. Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
+_Last updated: 2026-11-03 — v0.4 (SQLite repository) and v0.5 (WhatsApp-ready digest) complete (sections 4 and 5). Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
 
 ## Project
 
@@ -23,7 +23,7 @@ The digest is a "Daily Briefing" with two sections: "Intelligent Transportation 
 | **v0.2** | Source coverage (incl. Chinese-language sources), full-text extraction and relevance scoring | 🚧 In progress — Chinese sources: groundwork done, feeds on hold (section 2.8); to close before v0.4 |
 | **v0.3** | Local LLM integration using Ollama | ✅ Wrapped up (2026-11-03); Ollama benchmark and evaluation dataset deferred (section 3.6) |
 | **v0.4** | SQLite news repository | ✅ Complete (2026-11-03, section 4) |
-| **v0.5** | WhatsApp-ready digest | 🚧 Next |
+| **v0.5** | WhatsApp-ready digest | ✅ Complete (2026-11-03, section 5) |
 | **v0.6** | Searchable web interface | Planned |
 | **v0.7** | Embeddings, semantic search and RAG | Planned |
 | **v0.8** | Agentic news research | Planned |
@@ -43,7 +43,7 @@ Revision 2026-11-03: Chinese-language sources are part of v0.2 (source coverage)
 
 ### Immediate priorities
 
-1. v0.5: WhatsApp-ready digest (section 5).
+1. Choose the next step: the remaining v0.2 work (section 2.7) or v0.6, the searchable web interface (section 6).
 2. Finish the remaining v0.2 work (section 2.7): dedupe, tests, cleanup.
 3. Stabilise the transport × AI × GIS scoring and daily digest quality; the database collects every scored article from daily runs.
 4. Fix the GPU crashes under Ollama (`docs/crash-investigation-2026-11-03.md`), then return to the deferred v0.3 items (section 3.6).
@@ -393,10 +393,33 @@ ITS history in the database starts on 2026-11-03 (three imported runs and the fi
 
 ---
 
-## 5. Later versions
+## 5. v0.5 — WhatsApp-ready digest (complete, 2026-11-03)
 
-### v0.5 — WhatsApp-ready digest
-Compact plain text with headlines, short summaries and links; configurable length; manual copy/paste. Automatic delivery out of scope.
+**Scope:** compact plain text with headlines, short summaries and links; configurable length; manual copy/paste. Automatic delivery out of scope.
+
+**Exit criterion:** each pipeline run writes a WhatsApp-ready text with one-line summaries and links, length set in `config.py`, ready to paste; tested. ✅ Met on 2026-11-03 (pipeline runs 16:59 and 17:31; 24 tests pass).
+
+### 5.1 Delivered
+
+- **`digest_whatsapp.py`**, called by `main.py` after the Markdown digest and before the database save:
+  - ITS items: published articles, qualified then notable, up to `WHATSAPP_MAX_ITS` (5). Each gets a one-line summary (at most 25 words) derived from its digest summary and "why it matters", all in **one** LLM call (`digest` task). If that call fails, each line falls back to the first sentence of the summary; an article whose summary failed gets title and link only.
+  - AI Daily Brief items: the story headline (already one line), up to `WHATSAPP_MAX_AIDB` (3); no LLM call.
+  - WhatsApp formatting (`*bold*`, `_italic_`), bare links (WhatsApp does not render Markdown links); `* _ ~ `` ` `` removed from titles and lines so they cannot toggle formatting. A 5 + 3 item text is about 2,000–2,400 characters.
+- **Output:** `output/whatsapp-YYYY-MM-DD.txt` (same-day reruns `(1)`, `(2)`, …), and the text is copied to the Windows clipboard (`clip.exe`, UTF-16LE without BOM, so emoji and accented or Chinese characters survive) for Ctrl+V into WhatsApp Desktop or Web. A failure in this step only warns.
+- **Settings:** `WHATSAPP_MAX_ITS`, `WHATSAPP_MAX_AIDB`, `WHATSAPP_INCLUDE_NOTABLE`, `WHATSAPP_ONE_LINERS` (False: headlines and links only, no LLM call), `WHATSAPP_COPY_TO_CLIPBOARD`.
+- **Database:** `summaries.one_liner` stores each one-liner with its summary; `migrate()` now works from a list of added columns (`ADDED_COLUMNS`).
+- **Tests:** `tests/test_whatsapp.py` (11): selection and limits, one LLM call, fallback, formatting, empty sections, switches, storage, clipboard encoding and failure; plus a migration test for `one_liner`.
+
+### 5.2 Decisions
+
+- **A separate module, not an extra field in the digest prompt:** keeps the digest prompt and Markdown digest unchanged, and WhatsApp formatting in one place. Cost: one extra LLM call per run, on short input.
+- **Input is the articles, not the Markdown file:** more reliable than parsing the digest back.
+- **Delivery stays manual (clipboard + paste).** The official WhatsApp Business Platform (Cloud API, or providers such as Twilio) needs a business account, a separate number and pre-approved templates, with a per-conversation cost; unofficial WhatsApp Web automation breaks WhatsApp's terms and risks a ban. If unattended delivery is wanted later, email or a Telegram bot are much easier to automate.
+- **No rebuild command yet:** one-liners are stored, so a command to rebuild the text for a past date from the database without LLM calls can be added later if needed.
+
+---
+
+## 6. Later versions
 
 ### v0.6 — Searchable web interface
 View current and past digests; search and filter by date, source and relevance; view summaries and scoring reasons; basic controls for configuration and digest generation. Backed by SQLite.
@@ -413,7 +436,7 @@ Identify emerging themes, run targeted follow-up searches, compare sources, trac
 
 ---
 
-## 6. Key learnings
+## 7. Key learnings
 
 - **Source freshness is the main quality constraint.** A valid source may publish too rarely for a 24-hour digest.
 - **RSS is preferred**; use search as a fallback (Esri) and scraping for structured archives (AI Daily Brief).
@@ -436,6 +459,8 @@ Identify emerging themes, run targeted follow-up searches, compare sources, trac
 - **Key reuse on a hash of the exact prompt.** Reusing a stored score only when model and prompt hash match means a rubric or text change automatically gives a fresh score, with no invalidation logic.
 - **Commit long LLM jobs per unit of work.** The AI Daily Brief backfill commits per episode, so a crash mid-run (as on 2026-11-03) loses at most one episode's calls.
 - **Store first, reuse only where it pays.** With one daily run, caching summaries and pages saves almost nothing; storing them still gives a record of what was published, which later versions build on.
+- **Batch small LLM jobs.** One call for all of a digest's one-liners costs less than one per article and keeps their wording consistent.
+- **Windows `clip.exe` takes UTF-16LE without a BOM;** with a BOM the mark ends up in the pasted text.
 - **Keep LLM calls out of rendering.** Generating summaries before building the Markdown makes them storable and the renderer testable without an LLM.
 
 ---
@@ -462,6 +487,8 @@ AI Daily Brief stories ----------------/
 → select_ai_headlines()        AI Daily Brief: highest AI score, up to AIDB_HEADLINES_MAX
 → generate_digest()            ITS: summarise_articles(), LLM summary + "why it matters" (+ English title for non-English titles); AI Daily Brief: stored story summary
 → generate_debug_digest()      all scored articles, scores and reasons (no LLM)
+→ build_whatsapp()             one-liners for ITS items (one LLM call) + AI Daily Brief headlines
+                               → output/whatsapp-*.txt, copied to the clipboard
 → save_digest()                output/digest-*.md, output/debug-digest-*.md
 → db.save_articles()           output/db/news.db: articles, new scores, summaries, digest_items
 → timing summary               (every LLM call also logged to output/llm-calls.csv)
@@ -493,6 +520,8 @@ AIDB_BUFFER_AFTER_MIN = 1
 AIDB_SOURCE = "AI Daily Brief"
 AIDB_HEADLINES_MAX = 4
 AIDB_HEADLINES_MIN_AI_SCORE = 3
+
+WHATSAPP_MAX_ITS = 5               # plus WHATSAPP_MAX_AIDB (3), _INCLUDE_NOTABLE, _ONE_LINERS, _COPY_TO_CLIPBOARD
 
 MAX_CONTENT_WORDS = 1500
 FULL_TEXT_MIN_WORDS = 150
@@ -535,6 +564,7 @@ class Article:
     summarised_by: str | None = None
     summary_error: str | None = None
     summary_id: int | None = None      # summaries.id in the database
+    one_liner: str | None = None       # WhatsApp one-line summary (digest_whatsapp.py)
 ```
 
 ### Environment
@@ -573,11 +603,11 @@ b10c490 Reduce scoring.py __main__ to a single-article test
 
 ## Resume point
 
-v0.4 is complete (section 4): the pipeline stores every run in `output/db/news.db` (articles, scores, published summaries, digest status), reuses scores for identical prompts, `reader.py` reads past digests back by day, and the AI Daily Brief is backfilled from 2026-09-01. v0.5 (WhatsApp-ready digest) is next. v0.3 is wrapped up on OpenAI; Chinese-language sources are ready but on hold (section 2.8). Runs use OpenAI; `RECENT_HOURS = 24`.
+v0.4 is complete (section 4): the pipeline stores every run in `output/db/news.db` (articles, scores, published summaries, digest status), reuses scores for identical prompts, `reader.py` reads past digests back by day, and the AI Daily Brief is backfilled from 2026-09-01. v0.5 is complete (section 5): each run also writes `output/whatsapp-YYYY-MM-DD.txt` with one-line summaries and copies it to the clipboard for pasting into WhatsApp. v0.3 is wrapped up on OpenAI; Chinese-language sources are ready but on hold (section 2.8). Runs use OpenAI; `RECENT_HOURS = 24`.
 
 Next:
 
-1. v0.5: WhatsApp-ready digest (section 5).
+1. Choose the next step: the remaining v0.2 work (item 2) or v0.6, the searchable web interface (section 6).
 2. Remaining v0.2 work (section 2.7): better dedupe, pytest tests for the pipeline functions (pytest is set up), cleanup.
 3. Tune thresholds from the debug digests.
 4. Fix the GPU, then the deferred v0.3 items (section 3.6): evaluation dataset, Ollama benchmark, Ollama exit criterion.

@@ -1,6 +1,6 @@
 # AI Mobility News
 
-MVP v0.4 (SQLite news repository); v0.5 (WhatsApp-ready digest) next
+MVP v0.5 (WhatsApp-ready digest)
 
 Daily AI-powered news digest on AI and GIS applied to land transport
 (Intelligent Transportation Systems), with a separate section of the day's
@@ -27,6 +27,8 @@ general AI news from the AI Daily Brief podcast.
     AI score, with their own cap so they never take an ITS slot
 - Saves the digest as Markdown, plus a debug digest listing every scored
   article with its scores and reasons, and prints step timings
+- Writes a compact **WhatsApp-ready** text (headlines, one-line summaries,
+  links) and copies it to the clipboard, ready to paste into WhatsApp
 - Stores every run in a SQLite database: articles, every score with the
   exact text the model saw, the published summaries, digest status and the
   AI Daily Brief story splits; an article the same model has already scored
@@ -50,6 +52,8 @@ RSS feeds + Esri search + AI Daily Brief stories
 → AI Daily Brief section: AI headlines, up to AIDB_HEADLINES_MAX
 → summaries for the ITS articles
 → Markdown output (digest + debug digest), LLM call log
+→ WhatsApp text: one-liners for the ITS items (one LLM call), AI Daily Brief
+  headlines → output/whatsapp-YYYY-MM-DD.txt + clipboard
 → database: articles, scores, summaries, digest status
 ```
 
@@ -168,8 +172,9 @@ Run modules with `-m` (the package uses relative imports, so running files by
 path will fail):
 
 ```powershell
-# Run the full pipeline; writes output/digest-YYYY-MM-DD.md and
-# output/debug-digest-YYYY-MM-DD.md
+# Run the full pipeline; writes output/digest-YYYY-MM-DD.md,
+# output/debug-digest-YYYY-MM-DD.md and output/whatsapp-YYYY-MM-DD.txt
+# (also copied to the clipboard: paste into WhatsApp with Ctrl+V)
 uv run python -m aimobility_news.main
 
 # Same, with a local Ollama model instead of OpenAI
@@ -213,6 +218,7 @@ All output goes to `output/`, which is git-ignored:
 | File | Contents |
 |---|---|
 | `digest-YYYY-MM-DD.md` | The Daily Briefing. Same-day reruns are saved as `(1)`, `(2)`, … |
+| `whatsapp-YYYY-MM-DD.txt` | The WhatsApp-ready text (also copied to the clipboard): open WhatsApp Desktop or Web and press Ctrl+V |
 | `debug-digest-YYYY-MM-DD.md` | Every scored article: status, total, transport, AI, GIS, the model that scored it, and the reasons; for tuning the threshold and rubric |
 | `db/news.db` | The SQLite news repository (see [Database](#database)) |
 | `reader/<section or all>-<since>_<until>.md` | Output of `reader.py` |
@@ -245,6 +251,10 @@ All settings are in `src/aimobility_news/config.py`:
 | `MAX_CONTENT_WORDS` | Cap on article words sent to the LLM |
 | `FULL_TEXT_MIN_WORDS` | Minimum length for text to count as the full article |
 | `PAGE_FETCH_SOURCES` | Sources whose article webpages are fetched for full text |
+| `WHATSAPP_MAX_ITS`, `WHATSAPP_MAX_AIDB` | Items in the WhatsApp text per section (5, 3) |
+| `WHATSAPP_INCLUDE_NOTABLE` | Include "Also notable" ITS items (True) |
+| `WHATSAPP_ONE_LINERS` | One-line summaries for ITS items; False gives headlines and links only, with no LLM call (True) |
+| `WHATSAPP_COPY_TO_CLIPBOARD` | Copy the WhatsApp text to the Windows clipboard (True) |
 
 ## Layout
 
@@ -263,6 +273,7 @@ src/aimobility_news/
 ├── scoring.py                    # relevance scoring (transport, AI, GIS)
 ├── ranking.py                    # sort, classify, select ITS and AI Daily Brief items
 ├── digest.py                     # summaries, Markdown digest and debug digest -> output/
+├── digest_whatsapp.py            # WhatsApp-ready text: one-liners, formatting, clipboard
 ├── db.py                         # SQLite repository: schema, save, score reuse, --stats
 ├── backfill_aidb.py              # backfill past AI Daily Brief episodes into the database
 ├── reader.py                     # stored digests -> one Markdown file by day (standalone, read-only)
@@ -270,7 +281,8 @@ src/aimobility_news/
 
 tests/
 ├── conftest.py                   # temporary database, fake LLM, article helper
-└── test_db.py                    # repository, score reuse, summaries, import, backfill resume
+├── test_db.py                    # repository, score reuse, summaries, import, backfill resume
+└── test_whatsapp.py              # WhatsApp selection, one-liners, fallback, format, clipboard
 ```
 
 See `aimobility-news-checkpoint.md` for detailed progress notes, the roadmap,
