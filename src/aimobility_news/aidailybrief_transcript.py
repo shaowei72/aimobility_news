@@ -13,16 +13,17 @@ and the main episode may be one essay or several separate topics. So:
    to the end of its last heading's minute, plus a buffer at each end (code).
 4. Summarise each story from its transcript excerpt, guided by its headings
    (one LLM call per story).
-5. Save the headings, groups, excerpts and summaries per episode, so later runs
-   and benchmarks can reuse exactly the same output.
+5. Save the headings, groups, excerpts and summaries per episode and model in
+   the database (db.py, aidb_story_sets), so later runs and benchmarks reuse
+   exactly the same output.
 6. Optional (--compare): summarise the whole transcript in a single LLM call,
    then write a side-by-side report and ask a judge model to compare the two.
 
-Outputs go to <AIDB_DIR>/<date>/:
-    digest.md, transcript.md          source files (fetched once)
-    stories__<model>.json             steps 1-5
-    single-call__<model>.json         step 6, single-call summaries
-    compare__<model>.json / .md       step 6, judge verdict and report
+Outputs:
+    <AIDB_DIR>/<date>/digest.md, transcript.md   source files (fetched once)
+    database, aidb_story_sets                    steps 1-5, one row per episode and model
+    <AIDB_DIR>/<date>/single-call__<model>.json  step 6, single-call summaries
+    <AIDB_DIR>/<date>/compare__<model>.json/.md  step 6, judge verdict and report
 
 Usage:
     uv run python -m aimobility_news.aidailybrief_transcript 2026-10-29 2026-10-30
@@ -47,7 +48,8 @@ from pydantic import BaseModel, Field
 
 from . import llm
 from .config import AIDB_DIR, AIDB_BUFFER_BEFORE_MIN, AIDB_BUFFER_AFTER_MIN
-from .pool import code_version
+from . import db
+from .db import code_version
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -400,10 +402,13 @@ def run_info(task: str) -> dict:
 
 
 def build_stories(date: str, refresh: bool = False) -> dict:
-    out_path = episode_dir(date) / f"stories__{model_tag('transcript')}.json"
-    if out_path.exists() and not refresh:
-        print(f"  reusing {out_path.relative_to(PROJECT_ROOT)}")
-        return json.loads(out_path.read_text(encoding="utf-8"))
+    model = llm.describe("transcript")
+    if not refresh:
+        with db.session() as conn:
+            saved = db.load_story_set(conn, date, model)
+        if saved:
+            print(f"  reusing stories for {date} ({model}) from the database")
+            return saved
 
     digest, transcript = fetch_episode(date)
     episode, headings = parse_digest(digest)
@@ -481,8 +486,9 @@ def build_stories(date: str, refresh: bool = False) -> dict:
             result["stories"].append(story)
 
     # Step 5
-    out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"  saved {out_path.relative_to(PROJECT_ROOT)}")
+    with db.session() as conn:
+        db.save_story_set(conn, result)
+    print(f"  saved stories for {date} ({model}) to the database")
     return result
 
 

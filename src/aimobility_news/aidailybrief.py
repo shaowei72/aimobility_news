@@ -38,27 +38,44 @@ def fetch_aidailybrief_stories(hours: int = RECENT_HOURS) -> list[Article]:
             articles.append(edition)
             continue
 
-        for story in result["stories"]:
-            summary = story["summary"]
-            if summary:
-                title = summary["headline"]
-                text = summary["summary"]
-                content = text + "\n\nKey points:\n" + "\n".join(
-                    f"- {p}" for p in summary["key_points"]
-                )
-            else:
-                # Summary call failed: score on the raw transcript excerpt
-                title, text, content = story["title"], None, story["excerpt"]
+        articles += story_articles(result, edition.published_at)
 
-            articles.append(Article(
-                title=title,
-                url=story["url"],
-                source=AIDB_SOURCE,
-                published_at=edition.published_at,
-                summary=text,
-                content=content,
-            ))
+    return articles
 
+
+def story_articles(result: dict, published_at: datetime | None) -> list[Article]:
+    """One Article per story in a build_stories() result. Scored on the
+    story's summary and key points, or on the transcript excerpt if the
+    summary call failed."""
+    articles = []
+    urls = set()
+    for story in result["stories"]:
+        summary = story["summary"]
+        if summary:
+            title = summary["headline"]
+            text = summary["summary"]
+            content = text + "\n\nKey points:\n" + "\n".join(
+                f"- {p}" for p in summary["key_points"]
+            )
+        else:
+            title, text, content = story["title"], None, story["excerpt"]
+
+        # A story's URL is its first heading's #anchor on the episode page.
+        # Without an anchor it would be the bare episode URL, shared by other
+        # stories; the database keys articles by URL, so make it unique.
+        url = story["url"]
+        if "#" not in url or url in urls:
+            url = f"{url.split('#')[0]}#{story['id']}"
+        urls.add(url)
+
+        articles.append(Article(
+            title=title,
+            url=url,
+            source=AIDB_SOURCE,
+            published_at=published_at,
+            summary=text,
+            content=content,
+        ))
     return articles
 
 

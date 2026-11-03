@@ -20,6 +20,7 @@ class Article:
     total_score: int | None = None   # combine_scores() in scoring.py, 0-65
     scored_by: str | None = None     # provider:model, e.g. "ollama:qwen3.5:9b"
     scoring_error: str | None = None # set when the scoring call failed; scores stay None
+    score_id: int | None = None      # scores.id in the database (db.py), set when stored or reused
 
     # Set by classify_articles() / select_for_digest() in ranking.py
     digest_status: str | None = None   # "qualified", "notable" or "below threshold"

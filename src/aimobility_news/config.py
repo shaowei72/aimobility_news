@@ -197,10 +197,10 @@ OLLAMA_MAX_ATTEMPTS = 2            # retries when the output fails schema valida
 # Relative to the project root; set to None to disable.
 LLM_CALL_LOG = "output/llm-calls.csv"
 
-# Every run appends its scored articles (text, scores, reasons) here, one JSON
-# object per line: the pool the evaluation dataset is picked from.
-# Relative to the project root; set to None to disable.
-SCORED_POOL = "output/scored-articles.jsonl"
+# SQLite news repository (db.py): runs, articles, every score with the exact
+# text the model saw, digest status, AI Daily Brief story sets. Relative to the
+# project root. Replaces the v0.3 output/scored-articles.jsonl pool.
+DB_FILE = "output/db/news.db"
 
 # AI Daily Brief stories (aidailybrief_transcript.py). Each episode's source
 # files and LLM outputs go to <AIDB_DIR>/<date>/ (relative to the project root).

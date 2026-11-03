@@ -18,7 +18,7 @@ from .ranking import (
     select_ai_headlines,
 )
 from .digest import generate_digest, generate_debug_digest, save_digest
-from .pool import save_to_pool
+from . import db
 from .esri_search import fetch_esri_articles
 from .aidailybrief import fetch_aidailybrief_stories
 from .config import TOP_RANKED, MIN_TOTAL_SCORE, AIDB_HEADLINES_MAX
@@ -107,7 +107,14 @@ def main(provider: str | None = None):
         unique_articles = add_page_content(unique_articles)
 
     with timed(f"Score ({len(unique_articles)} articles)"):
-        scored_articles = score_articles(unique_articles)
+        # Articles whose identical prompt the same model has already scored
+        # (e.g. on an earlier run today) reuse the stored score
+        with db.session() as conn:
+            to_score = db.reuse_scores(conn, unique_articles)
+        print(f"Scores reused from the database: {len(unique_articles) - len(to_score)}, "
+              f"to score: {len(to_score)}")
+        score_articles(to_score)
+        scored_articles = unique_articles
 
     with timed("Rank + classify"):
         ranked_articles = classify_articles(rank_articles(scored_articles))
@@ -132,12 +139,18 @@ def main(provider: str | None = None):
         debug_digest = generate_debug_digest(ranked_articles, MIN_TOTAL_SCORE)
         debug_file_path = save_digest(debug_digest, prefix="debug-digest")
 
-        pool_path = save_to_pool(ranked_articles)
+        # The digests are already saved, so a database problem only warns
+        try:
+            with db.session() as conn:
+                run_id = db.start_run(conn, "pipeline")
+                db.save_articles(conn, run_id, ranked_articles)
+            db_message = f"{len(ranked_articles)} articles saved to {db.DB_PATH}"
+        except Exception as e:
+            db_message = f"WARNING: could not save to the database: {type(e).__name__}: {e}"
 
     print(f"Digest saved to: {file_path}")
     print(f"Debug digest saved to: {debug_file_path}")
-    if pool_path:
-        print(f"{len(ranked_articles)} articles added to pool: {pool_path}")
+    print(db_message)
 
     print_timing_summary(time.perf_counter() - total_start)
 

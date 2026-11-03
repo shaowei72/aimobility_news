@@ -33,10 +33,13 @@ def combine_scores(transport: int, ai: int, gis: int) -> int:
     return (transport + 1) * (ai + gis + 1) - 1
 
 
-def score_article(article: Article) -> Article:
+def scoring_prompt(article: Article) -> str:
+    # The full prompt for one article. db.py stores a hash of it with each
+    # score, so an identical prompt (same rubric, title and text) is not
+    # scored twice by the same model.
     text_label, text = text_for_scoring(article)
 
-    prompt = f"""
+    return f"""
 Evaluate the relevance and significance of this news article for a
 daily briefing covering three domains:
 
@@ -292,6 +295,10 @@ Article title:
 {text_label}:
 {text}
 """
+
+
+def score_article(article: Article) -> Article:
+    prompt = scoring_prompt(article)
 
     scores = llm.parse(
         prompt, ArticleScore, task="scoring", label=article.title
