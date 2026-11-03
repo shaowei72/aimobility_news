@@ -19,3 +19,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = []
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]

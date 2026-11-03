@@ -200,6 +200,9 @@ uv run python -m aimobility_news.validate_feeds
 # Score a single test article (one LLM call)
 uv run python -m aimobility_news.scoring
 
+# Run the tests (temporary database, fake LLM: no API calls, news.db untouched)
+uv run pytest -q
+
 # Test the source adapters
 uv run python -m aimobility_news.aidailybrief
 uv run python -m aimobility_news.esri_search     # uses OpenAI web search
@@ -264,6 +267,10 @@ src/aimobility_news/
 ├── backfill_aidb.py              # backfill past AI Daily Brief episodes into the database
 ├── reader.py                     # stored digests -> one Markdown file by day (standalone, read-only)
 └── validate_feeds.py             # feed health check
+
+tests/
+├── conftest.py                   # temporary database, fake LLM, article helper
+└── test_db.py                    # repository, score reuse, summaries, import, backfill resume
 ```
 
 See `aimobility-news-checkpoint.md` for detailed progress notes, the roadmap,

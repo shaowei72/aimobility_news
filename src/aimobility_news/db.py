@@ -146,7 +146,9 @@ CREATE TABLE IF NOT EXISTS aidb_story_sets (
 # Connection
 # ------------------------------------------------------------
 
-def connect(path: Path = DB_PATH) -> sqlite3.Connection:
+def connect(path: Path | None = None) -> sqlite3.Connection:
+    # DB_PATH is looked up at call time, so tests can point it elsewhere
+    path = path or DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -167,7 +169,7 @@ def migrate(conn: sqlite3.Connection) -> None:
 
 
 @contextmanager
-def session(path: Path = DB_PATH):
+def session(path: Path | None = None):
     """Open, commit on success (roll back on error), always close."""
     conn = connect(path)
     try:

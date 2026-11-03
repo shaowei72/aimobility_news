@@ -1,6 +1,6 @@
 # AI Mobility News App — Checkpoint
 
-_Last updated: 2026-11-03 — v0.4 (SQLite repository) in progress: database, score reuse, AI Daily Brief backfill, stored digest summaries and a digest reader done; tests and the exit criterion remain (section 4). Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
+_Last updated: 2026-11-03 — v0.4 (SQLite repository) in progress: database, score reuse, AI Daily Brief backfill, stored digest summaries, a digest reader and `db.py` tests done; the backfill up to date and the exit criterion remain (section 4). Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
 
 ## Project
 
@@ -43,7 +43,7 @@ Revision 2026-11-03: Chinese-language sources are part of v0.2 (source coverage)
 
 ### Immediate priorities
 
-1. Finish v0.4 (section 4.4): `db.py` tests, backfill the AI Daily Brief up to date, confirm the exit criterion.
+1. Finish v0.4 (section 4.4): backfill the AI Daily Brief up to date, confirm the exit criterion.
 2. Finish the remaining v0.2 work (section 2.7): dedupe, tests, cleanup.
 3. Stabilise the transport × AI × GIS scoring and daily digest quality; the database collects every scored article from daily runs.
 4. Fix the GPU crashes under Ollama (`docs/crash-investigation-2026-11-03.md`), then return to the deferred v0.3 items (section 3.6).
@@ -385,7 +385,7 @@ Decided against (2026-11-03), because production runs once a day at a fixed time
 - **Historical queries** beyond the reader and `--stats` (score history per article, top articles by source) wait for v0.6.
 
 Remaining:
-- [ ] Tests for `db.py`: idempotent legacy import, score reuse, backfill resume, migration of an older database, summaries stored and linked (temporary database, stubbed LLM)
+- [x] Tests for `db.py` (`tests/test_db.py`, 12 tests, `uv run pytest`): schema and migration of an older database, one article row per URL, score reuse (identical prompt reused; changed text or model rescored; failures not reused; reused scores not stored twice), summaries stored and linked, story sets and `build_stories()` reuse, idempotent legacy import, backfill resume after a crash with no repeated LLM calls. Temporary database and a fake LLM, so no API calls and `news.db` is never opened; `connect()`/`session()` now read `DB_PATH` at call time for this. pytest added as a dev dependency.
 - [ ] Finish the backfill and fill any gap up to today (2026-11-02 onwards)
 - [ ] Confirm the exit criterion
 
@@ -577,8 +577,8 @@ v0.4 is in progress (section 4): the pipeline stores every run in `output/db/new
 
 Next:
 
-1. v0.4 (section 4.4): `db.py` tests, finish the backfill up to today, confirm the exit criterion.
-2. Remaining v0.2 work (section 2.7): better dedupe, pytest tests, cleanup.
+1. v0.4 (section 4.4): finish the backfill up to today, confirm the exit criterion.
+2. Remaining v0.2 work (section 2.7): better dedupe, pytest tests for the pipeline functions (pytest is set up), cleanup.
 3. Tune thresholds from the debug digests.
 4. Fix the GPU, then the deferred v0.3 items (section 3.6): evaluation dataset, Ollama benchmark, Ollama exit criterion.
 5. When resuming Chinese sources: re-enable `FEEDS_AI_CN`, review the Chinese articles in the debug digests, then decide on the next Chinese feeds (section 2.8).
