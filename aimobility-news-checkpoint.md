@@ -1,6 +1,6 @@
 # AI Mobility News App — Checkpoint
 
-_Last updated: 2026-11-03 — Chinese-language sources prepared but on hold (section 2.8); v0.3 wrapped up on OpenAI, with the Ollama benchmark and evaluation dataset deferred until the GPU is fixed_
+_Last updated: 2026-11-03 — v0.4 (SQLite repository) in progress: database, score reuse, AI Daily Brief backfill, stored digest summaries and a digest reader done; tests and the exit criterion remain (section 4). Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
 
 ## Project
 
@@ -22,7 +22,7 @@ The digest is a "Daily Briefing" with two sections: "Intelligent Transportation 
 | **v0.1** | End-to-end MVP news pipeline | ✅ Complete |
 | **v0.2** | Source coverage (incl. Chinese-language sources), full-text extraction and relevance scoring | 🚧 In progress — Chinese sources: groundwork done, feeds on hold (section 2.8); to close before v0.4 |
 | **v0.3** | Local LLM integration using Ollama | ✅ Wrapped up (2026-11-03); Ollama benchmark and evaluation dataset deferred (section 3.6) |
-| **v0.4** | SQLite news repository | Planned |
+| **v0.4** | SQLite news repository | 🚧 In progress (started 2026-11-03, section 4) |
 | **v0.5** | WhatsApp-ready digest | Planned |
 | **v0.6** | Searchable web interface | Planned |
 | **v0.7** | Embeddings, semantic search and RAG | Planned |
@@ -30,7 +30,7 @@ The digest is a "Daily Briefing" with two sections: "Intelligent Transportation 
 
 Changes from the previous roadmap: local LLM inference via Ollama is inserted as v0.3, and every later version moves down one number. Automatic WhatsApp delivery remains out of scope.
 
-Revision 2026-11-03: Chinese-language sources are part of v0.2 (source coverage). v0.2 is to be closed before v0.4 starts, although v0.3 was wrapped up first.
+Revision 2026-11-03: Chinese-language sources are part of v0.2 (source coverage). v0.2 was to be closed before v0.4 started; in the event v0.4 started first (same day), and the remaining v0.2 items (section 2.7) run alongside it.
 
 ### Engineering principles (all releases)
 
@@ -43,11 +43,11 @@ Revision 2026-11-03: Chinese-language sources are part of v0.2 (source coverage)
 
 ### Immediate priorities
 
-1. Chinese-language sources are on hold (section 2.8): the groundwork is in place; re-enable `FEEDS_AI_CN` in `config.py` when ready.
+1. Finish v0.4 (section 4.4): `db.py` tests, backfill the AI Daily Brief up to date, confirm the exit criterion.
 2. Finish the remaining v0.2 work (section 2.7): dedupe, tests, cleanup.
-3. Stabilise the transport × AI × GIS scoring and daily digest quality; let the candidate pool grow from daily runs.
+3. Stabilise the transport × AI × GIS scoring and daily digest quality; the database collects every scored article from daily runs.
 4. Fix the GPU crashes under Ollama (`docs/crash-investigation-2026-11-03.md`), then return to the deferred v0.3 items (section 3.6).
-5. Start v0.4 (SQLite repository) when v0.2 is closed.
+5. Chinese-language sources are on hold (section 2.8): the groundwork is in place; re-enable `FEEDS_AI_CN` in `config.py` when ready.
 
 ---
 
@@ -192,7 +192,7 @@ The transport and AI feeds added since then have not been checked yet.
 
 **Scoring and digest quality**
 - [ ] Run several days and tune `MIN_TOTAL_SCORE` and `NOTABLE_MIN_*` from the debug digests. Current values are 11 and 3 / 3 / 3; `RECENT_HOURS = 24`
-- [ ] Build the evaluation dataset: deferred with the Ollama benchmark (section 3.6); the candidate pool keeps collecting meanwhile
+- [ ] Build the evaluation dataset: deferred with the Ollama benchmark (section 3.6); the database (`scores`, with the exact text each model saw) keeps collecting candidates meanwhile
 
 **Reliability**
 - [ ] Deduplicate on normalised title and canonical URL (strip `utm_*`), not only exact URL
@@ -318,7 +318,7 @@ Status: steps 1–3, 6 and 7 ✅ done (`059d259`, `e0fa29d`, this wrap-up); step
 - **Ollama settings:** explicit `OLLAMA_NUM_CTX = 16384` (warns if a prompt fills it), temperature 0, thinking off, one retry on invalid JSON.
 - **Robustness:** scores bounded 0–5 in the schema; a failed scoring call marks the article "scoring failed" and the run continues (it stops only if every article fails); a failed summary shows "Summary unavailable"; Esri and AI Daily Brief failures skip the source.
 - **Call log** (`output/llm-calls.csv`): one row per call: run, provider, model, task, label, status, attempts, prompt/output tokens, `num_ctx`, seconds.
-- **Candidate pool** (`output/scored-articles.jsonl`): every run appends each scored article with the exact text the model saw, its scores, reasons, status and the code version, for the later evaluation dataset.
+- **Candidate pool** (`output/scored-articles.jsonl`): every run appends each scored article with the exact text the model saw, its scores, reasons, status and the code version, for the later evaluation dataset. Replaced in v0.4 by the database (`78f689f`; the pool was imported into it).
 - **AI Daily Brief stories** (`aidailybrief_transcript.py`, `fetch_aidailybrief_stories()` in `aidailybrief.py`):
   1. Parse the episode's Markdown digest headings (Headlines and Main episode sections).
   2. Group headings into stories (LLM, one call per section).
@@ -335,16 +335,65 @@ Status: steps 1–3, 6 and 7 ✅ done (`059d259`, `e0fa29d`, this wrap-up); step
 - [ ] **Fix the GPU crashes** under Ollama: clean-install or roll back the NVIDIA driver; reseat the card and check its power; try PCIe Gen 4 in the BIOS; watch `nvidia-smi -l 1` during a run; GPU stress test without Ollama. See `docs/crash-investigation-2026-11-03.md`.
 - [ ] **Confirm stability:** repeat the 4,344-token "Intelligence Index V5" story summary (29 Oct episode) 10–20 times on Ollama from a fresh boot.
 - [ ] **Guard:** stop the run after the first Ollama HTTP 500 instead of continuing on a CPU fallback.
-- [ ] **Evaluation dataset** (step 4): draw 30–50 articles from the candidate pool (≈10 strong overlap, ≈10 borderline around `MIN_TOTAL_SCORE`, ≈10 single-domain, 5–10 low; include summary-only and a few AI Daily Brief stories), freeze them with their text in a tracked file, and hand-label at least the borderline ones. As of 2026-11-03 the pool held only 31 unique articles (2 strong overlap, 2 borderline).
+- [ ] **Evaluation dataset** (step 4): draw 30–50 articles from the database's `scores` table, which replaced the candidate pool in v0.4 (≈10 strong overlap, ≈10 borderline around `MIN_TOTAL_SCORE`, ≈10 single-domain, 5–10 low; include summary-only and a few AI Daily Brief stories), freeze them with their text in a tracked file, and hand-label at least the borderline ones. As of 2026-11-03 the pool held only 31 unique articles (2 strong overlap, 2 borderline).
 - [ ] **Benchmark** (step 5): `qwen3.5:9b`, `qwen3:8b` and a ~14B model against OpenAI on the frozen set. Compare at "differs by more than 1", not exact match: OpenAI itself changed 3 of 23 re-scored articles by 1 point on identical text, one of them across the notable threshold.
 - [ ] **Exit criterion:** a full digest run on Ollama with results comparable to OpenAI.
 
 ---
 
-## 4. Later versions
+## 4. v0.4 — SQLite news repository (in progress, started 2026-11-03)
 
-### v0.4 — SQLite news repository
-Store article metadata, dates, sources, extracted content, summaries, scores, reasons, **LLM model identifiers**, and digest status (`digest_status`, `published`). Avoid refetching and rescoring; track earlier digest appearances (e.g. AI Daily Brief on consecutive evenings); basic historical queries.
+**Scope (original):** store article metadata, dates, sources, extracted content, summaries, scores, reasons, **LLM model identifiers**, and digest status (`digest_status`, `published`). Avoid refetching and rescoring; track earlier digest appearances (e.g. AI Daily Brief on consecutive evenings); basic historical queries.
+
+**Exit criterion (proposed):** every pipeline run stores its articles, scores, published summaries and digest status; the AI Daily Brief is backfilled from 2026-10-01 to date; past digests can be read back from the database (`reader.py`); `db.py` has passing tests.
+
+### 4.1 Database (`db.py`, `78f689f`)
+
+One file, `output/db/news.db` (`DB_FILE`, git-ignored):
+
+| Table | One row per |
+|---|---|
+| `runs` | pipeline, backfill or import run: kind, start time, code version, settings (provider, models, thresholds) |
+| `articles` | URL (RSS articles, Esri posts, AI Daily Brief stories): title, source, published date, feed summary, longest full text seen |
+| `scores` | scoring of an article: model, code version, prompt hash, the exact text the model saw, three scores and reasons, total, error |
+| `summaries` | digest summary of a published ITS article: model, code version, prompt hash, English title, summary, why it matters, error (`5e94fec`) |
+| `digest_items` | run × article: digest status, published, section, and the score and summary used |
+| `aidb_episodes` | AI Daily Brief episode: date, URL, title, lead |
+| `aidb_story_sets` | episode × model: the full `build_stories()` result as JSON (headings, groupings, excerpts, summaries) |
+
+- `main.py` saves each run at the end; a database failure only warns, since the digests are already written.
+- **Score reuse:** `reuse_scores()` applies a stored score when the same model has already scored an identical prompt (same rubric, title and text). A rubric change gives a new prompt hash and a fresh score.
+- **Story sets** are cached in the database (previously `stories__<model>.json` files).
+- **Migration:** `migrate()` adds columns introduced after a table was created (`digest_items.summary_id`).
+- `--import-legacy` loaded the v0.3 JSONL pool (85 rows) and story JSON files (idempotent); `--stats` prints counts. `pool.py` and `SCORED_POOL` are removed.
+
+### 4.2 AI Daily Brief backfill (`backfill_aidb.py`, `78f689f`)
+
+Splits, scores and classifies every archive episode in a date range (`--since`, `--until`, `--provider`, `--dry-run`), committing per episode, so an interrupted run resumes without repeating LLM calls. A run on Ollama crashed the PC on 2026-11-03 (section 3.6); the gaps were filled on OpenAI. As of 2026-11-03: 26 episodes from 2026-10-01, backfill still running. Episodes 2026-10-27 and 2026-10-29 also have an Ollama story set, which the reader skips by default.
+
+### 4.3 Digest summaries and reader (`5e94fec`, `cf59d17`)
+
+- **Stored summaries:** `digest.summarise_articles()` makes the summary calls before rendering (`digest_prompt()` split out, as `scoring_prompt()` was); `save_articles()` stores each in `summaries` and links it in `digest_items`. Confirmed on the 2026-11-03 15:40 run: 8 published ITS articles, 8 stored summaries.
+- **Reader** (`reader.py`): writes stored content to `output/reader/<section or all>-<since>_<until>.md`, grouped by day, newest first. Each entry goes under its content date: an ITS article's published date (local time), an episode's date. ITS articles appear once (latest run) with score, status, summary and why it matters; `--all` adds unpublished articles and scoring reasons. Episodes show title, lead and each story's headline, AI score, time window, summary and key points; `--min-ai-score`, `--model`. `its` or `aidb` limits it to one source. Standard library only and read-only, so it is safe during a backfill.
+
+### 4.4 Decisions and remaining work
+
+Decided against (2026-11-03), because production runs once a day at a fixed time and re-runs only after a failure:
+- **Summary reuse:** summaries are stored with their prompt hash, but not reused; `db.reuse_summaries()`, its call in `main.py` and the skip in `summarise_articles()` are commented out, ready to enable.
+- **Avoid refetching pages:** with a 24-hour window and one daily run the same page is almost never fetched twice; a refetch costs seconds, not LLM calls, and scores are still reused when the text is unchanged.
+- **Track earlier digest appearances:** an episode is stamped 23:59 UTC (07:59 Singapore time), so a fixed evening run sees each episode once; repeats only arise from runs before ~08:00 or several runs a day. `digest_items` already holds the history if this is needed later. Same story under different URLs or sources is semantic matching, for v0.7.
+- **Historical queries** beyond the reader and `--stats` (score history per article, top articles by source) wait for v0.6.
+
+Remaining:
+- [ ] Tests for `db.py`: idempotent legacy import, score reuse, backfill resume, migration of an older database, summaries stored and linked (temporary database, stubbed LLM)
+- [ ] Finish the backfill and fill any gap up to today (2026-11-02 onwards)
+- [ ] Confirm the exit criterion
+
+ITS history in the database starts on 2026-11-03 (three imported runs and the first stored run); earlier ITS digests exist only as Markdown in `output/`.
+
+---
+
+## 5. Later versions
 
 ### v0.5 — WhatsApp-ready digest
 Compact plain text with headlines, short summaries and links; configurable length; manual copy/paste. Automatic delivery out of scope.
@@ -364,7 +413,7 @@ Identify emerging themes, run targeted follow-up searches, compare sources, trac
 
 ---
 
-## 5. Key learnings
+## 6. Key learnings
 
 - **Source freshness is the main quality constraint.** A valid source may publish too rarely for a 24-hour digest.
 - **RSS is preferred**; use search as a fallback (Esri) and scraping for structured archives (AI Daily Brief).
@@ -384,6 +433,10 @@ Identify emerging themes, run targeted follow-up searches, compare sources, trac
 - **Give a broad source its own digest section.** AI-only stories cannot reach the transport-weighted threshold, and boosting their score would push out the transport news; a separate capped section keeps both.
 - **Don't count words with `split()` for Chinese.** Without spaces, full articles look like one-word teasers and length caps stop working; count characters for CJK text.
 - **Test new feeds twice.** Several Chinese feeds failed on the first request (502, timeout, truncated response) and worked on the second; a single retry turns them from "broken" into usable.
+- **Key reuse on a hash of the exact prompt.** Reusing a stored score only when model and prompt hash match means a rubric or text change automatically gives a fresh score, with no invalidation logic.
+- **Commit long LLM jobs per unit of work.** The AI Daily Brief backfill commits per episode, so a crash mid-run (as on 2026-11-03) loses at most one episode's calls.
+- **Store first, reuse only where it pays.** With one daily run, caching summaries and pages saves almost nothing; storing them still gives a record of what was published, which later versions build on.
+- **Keep LLM calls out of rendering.** Generating summaries before building the Markdown makes them storable and the renderer testable without an LLM.
 
 ---
 
@@ -407,10 +460,13 @@ AI Daily Brief stories ----------------/
 → classify_articles()          qualified / ai headline / notable / below threshold / scoring failed
 → select_for_digest()          ITS: qualified then notable, up to TOP_RANKED
 → select_ai_headlines()        AI Daily Brief: highest AI score, up to AIDB_HEADLINES_MAX
-→ generate_digest()            ITS: LLM summary + "why it matters" (+ English title for non-English titles); AI Daily Brief: stored story summary
+→ generate_digest()            ITS: summarise_articles(), LLM summary + "why it matters" (+ English title for non-English titles); AI Daily Brief: stored story summary
 → generate_debug_digest()      all scored articles, scores and reasons (no LLM)
-→ save_digest(), save_to_pool() output/digest-*.md, output/debug-digest-*.md, output/scored-articles.jsonl
+→ save_digest()                output/digest-*.md, output/debug-digest-*.md
+→ db.save_articles()           output/db/news.db: articles, new scores, summaries, digest_items
 → timing summary               (every LLM call also logged to output/llm-calls.csv)
+
+Before scoring, db.reuse_scores() applies stored scores for identical prompts.
 ```
 
 ### Configuration (`config.py`)
@@ -429,7 +485,7 @@ OPENAI_MODEL = "gpt-6.1-sol"       # also used by Esri search
 LLM_MODELS = {"openai": {...}, "ollama": {...}}   # per task: scoring, digest, transcript, judge
 OLLAMA_NUM_CTX = 16384             # plus OLLAMA_HOST, _TEMPERATURE (0), _THINK (False), _TIMEOUT, _MAX_ATTEMPTS
 LLM_CALL_LOG = "output/llm-calls.csv"
-SCORED_POOL = "output/scored-articles.jsonl"
+DB_FILE = "output/db/news.db"      # SQLite repository (replaced SCORED_POOL)
 
 AIDB_DIR = "output/aidailybrief"
 AIDB_BUFFER_BEFORE_MIN = 1         # transcript excerpt buffer, minutes
@@ -468,9 +524,17 @@ class Article:
     total_score: int | None = None     # combine_scores(), 0–65
     scored_by: str | None = None       # provider:model
     scoring_error: str | None = None   # set when the scoring call failed
+    score_id: int | None = None        # scores.id in the database
 
     digest_status: str | None = None   # "qualified", "ai headline", "notable", "below threshold", "scoring failed"
     published: bool = False
+
+    title_en: str | None = None        # set by summarise_articles() for published ITS articles
+    digest_summary: str | None = None
+    why_it_matters: str | None = None
+    summarised_by: str | None = None
+    summary_error: str | None = None
+    summary_id: int | None = None      # summaries.id in the database
 ```
 
 ### Environment
@@ -484,6 +548,10 @@ class Article:
 ### Commit history
 
 ```text
+cf59d17 Add a reader for stored digest content
+5e94fec Store digest summaries in the database
+78f689f Start v0.4: SQLite news repository and AI Daily Brief backfill
+085b729 Prepare Chinese-language sources (on hold): text length, English output, retries
 e4475c5 Add TechCrunch, The Verge and Electrek transport feeds with page fetch
 eb2eaa3 Wrap up v0.3: AI Daily Brief stories, two-section digest, docs
 5b35662 Save scored articles to a candidate pool for the evaluation dataset
@@ -505,12 +573,12 @@ b10c490 Reduce scoring.py __main__ to a single-article test
 
 ## Resume point
 
-v0.3 is wrapped up on OpenAI. Chinese-language sources (section 2.8): the groundwork (Chinese text length, English output and title translation, HTTP retry, keyword filter) is in the pipeline; Leiphone AI and QbitAI are ready in `FEEDS_AI_CN` but on hold (commented out of `FEEDS`). Runs use OpenAI; `RECENT_HOURS = 24`.
+v0.4 is in progress (section 4): the pipeline stores every run in `output/db/news.db` (articles, scores, published summaries, digest status), reuses scores for identical prompts, and `reader.py` reads past digests back by day. The AI Daily Brief backfill from 2026-10-01 is running on OpenAI. v0.3 is wrapped up on OpenAI; Chinese-language sources are ready but on hold (section 2.8). Runs use OpenAI; `RECENT_HOURS = 24`.
 
 Next:
 
-1. When resuming Chinese sources: re-enable `FEEDS_AI_CN`, review the Chinese articles in the debug digests, then decide on the next Chinese feeds (section 2.8).
+1. v0.4 (section 4.4): `db.py` tests, finish the backfill up to today, confirm the exit criterion.
 2. Remaining v0.2 work (section 2.7): better dedupe, pytest tests, cleanup.
-3. Tune thresholds from the debug digests, and let the candidate pool grow.
+3. Tune thresholds from the debug digests.
 4. Fix the GPU, then the deferred v0.3 items (section 3.6): evaluation dataset, Ollama benchmark, Ollama exit criterion.
-5. v0.4: SQLite repository, once v0.2 is closed.
+5. When resuming Chinese sources: re-enable `FEEDS_AI_CN`, review the Chinese articles in the debug digests, then decide on the next Chinese feeds (section 2.8).

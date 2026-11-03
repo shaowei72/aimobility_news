@@ -1,6 +1,6 @@
 # AI Mobility News
 
-MVP v0.3
+MVP v0.4 (in progress: SQLite news repository)
 
 Daily AI-powered news digest on AI and GIS applied to land transport
 (Intelligent Transportation Systems), with a separate section of the day's
@@ -27,6 +27,12 @@ general AI news from the AI Daily Brief podcast.
     AI score, with their own cap so they never take an ITS slot
 - Saves the digest as Markdown, plus a debug digest listing every scored
   article with its scores and reasons, and prints step timings
+- Stores every run in a SQLite database: articles, every score with the
+  exact text the model saw, the published summaries, digest status and the
+  AI Daily Brief story splits; an article the same model has already scored
+  on an identical prompt is not scored again
+- Reads past digests back from the database into one Markdown file, by day
+  (`reader.py`), and backfills past AI Daily Brief episodes (`backfill_aidb.py`)
 - Runs on OpenAI or on a local model via Ollama (switchable per run), and
   logs every LLM call to a CSV file
 
@@ -37,12 +43,14 @@ RSS feeds + Esri search + AI Daily Brief stories
 → recent articles
 → deduplicate
 → fetch article pages (PAGE_FETCH_SOURCES only)
+→ reuse stored scores for identical prompts
 → LLM scoring (transport, AI, GIS → total_score)
 → classify: qualified / AI headline / notable / below threshold
 → ITS section: qualified, then "Also notable", up to TOP_RANKED
 → AI Daily Brief section: AI headlines, up to AIDB_HEADLINES_MAX
 → summaries for the ITS articles
-→ Markdown output (digest + debug digest), scored-article pool, LLM call log
+→ Markdown output (digest + debug digest), LLM call log
+→ database: articles, scores, summaries, digest status
 ```
 
 ## Scoring
@@ -101,11 +109,32 @@ markers. `aidailybrief_transcript.py`:
 3. cuts each story's part of the transcript, with a 1-minute buffer each side
 4. summarises each story: headline, 100–150-word summary, key points (one
    LLM call per story)
-5. saves the result to `output/aidailybrief/<date>/stories__<model>.json`,
-   which later runs reuse
+5. saves the result in the database (`aidb_story_sets`, one per episode and
+   model), which later runs reuse
 
 The pipeline does this for every episode in the time window. Episodes are not
 published every day, so the AI Daily Brief section is sometimes empty.
+`backfill_aidb.py` does the same for a range of past episodes, committing per
+episode so an interrupted run resumes where it stopped.
+
+## Database
+
+`output/db/news.db` (SQLite, git-ignored; `db.py`):
+
+| Table | One row per |
+|---|---|
+| `runs` | pipeline, backfill or import run, with code version and settings |
+| `articles` | URL: title, source, published date, feed summary, longest full text |
+| `scores` | scoring: model, prompt hash, exact text, scores, reasons, error |
+| `summaries` | digest summary of a published ITS article: model, prompt hash, summary, why it matters |
+| `digest_items` | run × article: digest status, published, section, score and summary used |
+| `aidb_episodes` | AI Daily Brief episode: date, title, lead |
+| `aidb_story_sets` | episode × model: the full story split as JSON |
+
+A stored score is reused when the same model has already scored an identical
+prompt (same rubric, title and text). Summaries are stored but not reused, as
+only same-day re-runs would benefit (`db.reuse_summaries()` is commented out,
+ready to enable).
 
 ## Setup
 
@@ -152,6 +181,19 @@ uv run python -m aimobility_news.main --provider ollama
 uv run python -m aimobility_news.aidailybrief_transcript 2026-10-29
 uv run python -m aimobility_news.aidailybrief_transcript --latest 3
 
+# Backfill past AI Daily Brief episodes into the database (resumable;
+# --dry-run lists what is already stored)
+uv run python -m aimobility_news.backfill_aidb --since 2026-10-01 --until 2026-10-31 --provider openai
+
+# Read stored digests back, by day, newest first (default: last 7 days);
+# its or aidb for one source only; --all adds unpublished ITS articles and
+# scoring reasons; --min-ai-score filters AI Daily Brief stories
+uv run python -m aimobility_news.reader --since 2026-10-01
+uv run python -m aimobility_news.reader aidb --min-ai-score 4
+
+# Database table counts
+uv run python -m aimobility_news.db --stats
+
 # Check that each configured RSS feed is reachable and parseable
 uv run python -m aimobility_news.validate_feeds
 
@@ -169,9 +211,10 @@ All output goes to `output/`, which is git-ignored:
 |---|---|
 | `digest-YYYY-MM-DD.md` | The Daily Briefing. Same-day reruns are saved as `(1)`, `(2)`, … |
 | `debug-digest-YYYY-MM-DD.md` | Every scored article: status, total, transport, AI, GIS, the model that scored it, and the reasons; for tuning the threshold and rubric |
-| `scored-articles.jsonl` | Every scored article from every run, with the exact text the model saw; the candidate pool for a future evaluation dataset |
+| `db/news.db` | The SQLite news repository (see [Database](#database)) |
+| `reader/<section or all>-<since>_<until>.md` | Output of `reader.py` |
 | `llm-calls.csv` | One row per LLM call: provider, model, task, status, tokens, seconds |
-| `aidailybrief/<date>/` | Each episode's outline, transcript and story files |
+| `aidailybrief/<date>/` | Each episode's outline and transcript, plus `--compare` files |
 
 See [`docs/sample-digest.md`](docs/sample-digest.md) for an example (from
 v0.1; the format has changed since).
@@ -194,7 +237,8 @@ All settings are in `src/aimobility_news/config.py`:
 | `LLM_MODELS` | Model per provider and task (`scoring`, `digest`, `transcript`, `judge`) |
 | `OPENAI_MODEL` | OpenAI model, also used for Esri search |
 | `OLLAMA_*` | Ollama host, context window (`OLLAMA_NUM_CTX`, 16384), temperature, thinking, timeout, retries |
-| `LLM_CALL_LOG`, `SCORED_POOL` | Paths of the call log and the scored-article pool (`None` disables) |
+| `LLM_CALL_LOG` | Path of the LLM call log (`None` disables) |
+| `DB_FILE` | Path of the SQLite database (`output/db/news.db`) |
 | `MAX_CONTENT_WORDS` | Cap on article words sent to the LLM |
 | `FULL_TEXT_MIN_WORDS` | Minimum length for text to count as the full article |
 | `PAGE_FETCH_SOURCES` | Sources whose article webpages are fetched for full text |
@@ -216,9 +260,11 @@ src/aimobility_news/
 ├── scoring.py                    # relevance scoring (transport, AI, GIS)
 ├── ranking.py                    # sort, classify, select ITS and AI Daily Brief items
 ├── digest.py                     # summaries, Markdown digest and debug digest -> output/
-├── pool.py                       # scored-article pool (JSON Lines)
+├── db.py                         # SQLite repository: schema, save, score reuse, --stats
+├── backfill_aidb.py              # backfill past AI Daily Brief episodes into the database
+├── reader.py                     # stored digests -> one Markdown file by day (standalone, read-only)
 └── validate_feeds.py             # feed health check
 ```
 
-See `aimobility-news-checkpoint.md` for detailed progress notes, the roadmap
-and deferred work (local-model benchmark and evaluation dataset).
+See `aimobility-news-checkpoint.md` for detailed progress notes, the roadmap,
+v0.4 status and deferred work (local-model benchmark and evaluation dataset).
