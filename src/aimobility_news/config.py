@@ -87,7 +87,19 @@ FEEDS_AI_CN = {
     "QbitAI": "https://www.qbitai.com/feed",
 }
 
+# Gasgoo (盖世汽车): Chinese automotive technology news. Full article text in
+# the feed's content field (cleaner than the page, which adds contact details
+# and site links), so no page fetch. Dates have no timezone and are Beijing
+# time (FEED_TIMEZONES). Some articles appear in two of these feeds under
+# different URLs; deduplicate_articles() also matches on title.
+FEEDS_transport_CN = {
+    "Gasgoo Intelligent Connected Vehicles": "https://auto.gasgoo.com/Rss/ClassRss.aspx?ClassId=601",
+    "Gasgoo Automotive Industry": "https://auto.gasgoo.com/Rss/ClassRss.aspx?ClassId=108",
+    "Gasgoo New Energy Vehicles": "https://auto.gasgoo.com/Rss/ClassRss.aspx?ClassId=501",   # trial: batteries, charging; light on AI
+}
+
 # Tested 2026-11-03, not added (see checkpoint section 2.8):
+# "Gasgoo New Technology": "https://auto.gasgoo.com/Rss/ClassRss.aspx?ClassId=409",  # sparse (newest 4 days old), EV research and hydrogen
 # "Leiphone Intelligent Driving": "https://www.leiphone.com/feed/categoryRss/name/transportation",  # works on retry; ~2 articles / 72 h
 # "Leiphone AI Research": "https://www.leiphone.com/feed/categoryRss/name/academic",                # works on retry; newest 89 h old
 # "ITHome": "https://www.ithome.com/rss/",            # ~350 articles / day, mostly consumer tech; needs FEED_KEYWORDS
@@ -127,6 +139,12 @@ HTTP_TIMEOUT_OVERRIDES = {
 }
 HTTP_RETRIES = 1
 
+# Feeds whose dates carry no timezone (e.g. "2026-11-02 17:28:04"): hours
+# ahead of UTC that those dates are in. Dates that state a timezone are used
+# as given. Without this, Beijing times would be read as UTC, making articles
+# look 8 hours newer than they are.
+FEED_TIMEZONES = {source: 8 for source in FEEDS_transport_CN}
+
 
 
 # ============================================================
@@ -137,10 +155,17 @@ FEEDS = {
     **FEEDS_transport,
     **FEEDS_AI,
     **FEEDS_gis,
+    **FEEDS_transport_CN,          # Gasgoo, added 2026-11-03 (checkpoint section 2.8)
     # **FEEDS_AI_CN,               # on hold (checkpoint section 2.8)
 }
 
 RECENT_HOURS = 24
+
+# Longer lookback for sources whose feeds lag. Gasgoo's feeds leave out the
+# current day (Beijing time), so at an evening run its newest articles are
+# ~20-44 hours old; 48 hours catches each day once. main.py skips articles
+# already published in an earlier run, so the overlap is not published twice.
+RECENT_HOURS_OVERRIDES = {source: 48 for source in FEEDS_transport_CN}
 
 
 # total = (transport + 1) x (ai + gis + 1) - 1, range 0-65 (see scoring.py).

@@ -329,6 +329,19 @@ def insert_summary(conn: sqlite3.Connection, article_id: int, article: Article, 
     return cur.lastrowid
 
 
+def published_urls(conn: sqlite3.Connection) -> set[str]:
+    """URLs of articles published in any earlier pipeline run (including
+    runs imported from v0.3). Backfill runs never publish."""
+    return {
+        row["url"] for row in conn.execute(
+            "SELECT DISTINCT a.url FROM digest_items d "
+            "JOIN articles a ON a.id = d.article_id "
+            "JOIN runs r ON r.run_id = d.run_id "
+            "WHERE d.published = 1 AND r.kind LIKE 'pipeline%'"
+        )
+    }
+
+
 # Disabled: only same-day re-runs would benefit. To enable, uncomment this,
 # its call in main.py and the skip in digest.summarise_articles().
 #

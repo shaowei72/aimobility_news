@@ -1,7 +1,8 @@
+import re
 import requests
 import feedparser
 from datetime import datetime, timezone, timedelta
-import random
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import time
 import trafilatura
 from bs4 import BeautifulSoup
@@ -11,6 +12,7 @@ from .textlen import text_length
 from .config import (
     FEEDS,
     RECENT_HOURS,
+    RECENT_HOURS_OVERRIDES,
     FULL_TEXT_MIN_WORDS,
     MAX_CONTENT_WORDS,
     PAGE_FETCH_SOURCES,
@@ -18,8 +20,8 @@ from .config import (
     HTTP_TIMEOUT_OVERRIDES,
     HTTP_RETRIES,
     FEED_KEYWORDS,
+    FEED_TIMEZONES,
 )
-from .esri_search import fetch_esri_articles
 
 
 def http_get(url: str, timeout: float = HTTP_TIMEOUT) -> requests.Response:
@@ -81,21 +83,25 @@ def extract_content(entry, summary: str | None) -> str | None:
 def fetch_page_text(url: str) -> str | None:
     response = http_get(url)
 
+    # Pass the raw bytes: trafilatura detects the encoding from the page
+    # itself. response.text would use requests' guess, which is ISO-8859-1
+    # when the HTTP header names no charset (e.g. Gasgoo), garbling UTF-8.
     return trafilatura.extract(
-        response.text,
+        response.content,
         include_comments=False,
         include_tables=True
     )
 
 
-def add_page_content(articles):
-    # Only for sources in PAGE_FETCH_SOURCES. The page is fetched even when the
+def add_page_content(articles, sources: set[str] | None = None):
+    # Only for sources in PAGE_FETCH_SOURCES (or `sources`, for inspection). The page is fetched even when the
     # feed already gave enough text to count as full text (e.g. The Verge's
     # ~150-word opening excerpts), and the longer of the two is kept. If the
     # fetch fails, the feed's text stays. Call after filtering, so old entries
     # are not fetched.
+    sources = PAGE_FETCH_SOURCES if sources is None else sources
     for article in articles:
-        if article.source not in PAGE_FETCH_SOURCES:
+        if article.source not in sources:
             continue
 
         try:
@@ -141,6 +147,27 @@ def keyword_filter(articles: list[Article]) -> list[Article]:
     return kept
 
 
+# A timezone at the end of a feed date: "Z", "+0800", "+08:00", "GMT", "EST"
+TIMEZONE_RE = re.compile(r"(Z|[+-]\d{2}:?\d{2}|\b[A-Z]{2,4})\s*$")
+
+
+def entry_published_at(entry, source: str) -> datetime | None:
+    # feedparser gives published_parsed in UTC, and treats a date without a
+    # timezone as UTC. For sources in FEED_TIMEZONES, such a date is in
+    # that source's local time instead (e.g. Beijing, UTC+8).
+    parsed = entry.get("published_parsed")
+    if not parsed:
+        return None
+    published_at = datetime(*parsed[:6], tzinfo=timezone.utc)
+
+    hours = FEED_TIMEZONES.get(source)
+    raw = entry.get("published", "")
+    if hours is not None and not TIMEZONE_RE.search(raw):
+        local = timezone(timedelta(hours=hours))
+        published_at = published_at.replace(tzinfo=local).astimezone(timezone.utc)
+    return published_at
+
+
 def fetch_articles(feeds: dict[str, str] | None = None):
     # feeds: {source: url}; defaults to all FEEDS
     articles = []
@@ -160,12 +187,7 @@ def fetch_articles(feeds: dict[str, str] | None = None):
             if not title or not url:
                 continue
 
-            published_at = None
-            if entry.get("published_parsed"):
-                published_at = datetime(
-                    *entry.published_parsed[:6],
-                    tzinfo=timezone.utc
-                )
+            published_at = entry_published_at(entry, source)
 
             summary = html_to_text(entry.get("summary"))
 
@@ -182,8 +204,12 @@ def fetch_articles(feeds: dict[str, str] | None = None):
 
     return articles
 
-def filter_recent_articles(articles, hours=RECENT_HOURS):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def filter_recent_articles(articles, hours: int | None = None):
+    # Keep articles published within the lookback window: RECENT_HOURS, or
+    # RECENT_HOURS_OVERRIDES for sources whose feeds lag (e.g. Gasgoo).
+    # Passing hours applies that one window to every source (for inspection).
+    # Undated articles are dropped.
+    now = datetime.now(timezone.utc)
 
     recent_articles = []
 
@@ -191,35 +217,93 @@ def filter_recent_articles(articles, hours=RECENT_HOURS):
         if article.published_at is None:
             continue
 
-        if article.published_at >= cutoff:
+        window = hours or RECENT_HOURS_OVERRIDES.get(article.source, RECENT_HOURS)
+        if article.published_at >= now - timedelta(hours=window):
             recent_articles.append(article)
 
     return recent_articles
 
+
+def drop_previously_published(articles, published_urls: set[str]):
+    # Articles already published in an earlier run (published_urls, from
+    # db.published_urls()) are dropped, so a longer lookback window, a rerun
+    # or an off-schedule run never publishes the same article twice.
+    # Articles scored but not published earlier stay.
+    published = {canonical_url(url) for url in published_urls}
+    kept = [a for a in articles if canonical_url(a.url) not in published]
+    if len(kept) < len(articles):
+        print(f"Already published in an earlier digest: {len(articles) - len(kept)} articles dropped")
+    return kept
+
+def canonical_url(url: str) -> str:
+    # Drop utm_* tracking parameters; keep everything else, including the
+    # #fragment (AI Daily Brief stories differ only by fragment)
+    parts = urlsplit(url.strip())
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+             if not k.lower().startswith("utm_")]
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
+# Shorter normalised titles are too generic to match on ("Weekly roundup")
+MIN_TITLE_KEY_CHARS = 10
+
+
+def title_key(title: str) -> str | None:
+    # Lower case, without spaces, punctuation and invisible characters
+    # (e.g. zero-width spaces), so trivial differences do not matter.
+    # \w keeps letters and digits in any script, including Chinese.
+    key = re.sub(r"[\W_]+", "", title.lower())
+    return key if len(key) >= MIN_TITLE_KEY_CHARS else None
+
+
 def deduplicate_articles(articles):
+    # The first article wins; a later one is dropped if it has the same
+    # canonical URL or the same normalised title. Titles catch the same
+    # article under different URLs, e.g. in two Gasgoo category feeds.
     seen_urls = set()
+    seen_titles = set()
     unique_articles = []
+    dropped_by_title = 0
 
     for article in articles:
-        if article.url in seen_urls:
+        url = canonical_url(article.url)
+        key = title_key(article.title)
+
+        if url in seen_urls:
+            continue
+        if key and key in seen_titles:
+            dropped_by_title += 1
             continue
 
-        seen_urls.add(article.url)
+        seen_urls.add(url)
+        if key:
+            seen_titles.add(key)
         unique_articles.append(article)
+
+    if dropped_by_title:
+        print(f"Deduplicate: {dropped_by_title} articles dropped with the same title as an earlier one")
 
     return unique_articles
 
 
+def known_feeds() -> dict[str, str]:
+    # FEEDS plus the feed groups that may be on hold (not in FEEDS), so the
+    # inspection helpers can check them before they are switched on
+    from .config import FEEDS_AI_CN, FEEDS_transport_CN
+    return {**FEEDS_AI_CN, **FEEDS_transport_CN, **FEEDS}
+
+
 def inspect_feed_structure(source: str):
     """
-    Inspect the raw RSS fields for one source in FEEDS.
+    Inspect the raw RSS fields for one source (FEEDS or an on-hold feed).
     Useful for identifying where article text is stored.
     """
-    if source not in FEEDS:
+    known = known_feeds()
+    if source not in known:
         print(f"Source not found: {source}")
         return
 
-    feed = load_feed(FEEDS[source], HTTP_TIMEOUT_OVERRIDES.get(source, HTTP_TIMEOUT))
+    feed = load_feed(known[source], HTTP_TIMEOUT_OVERRIDES.get(source, HTTP_TIMEOUT))
 
     print(f"\nSource: {source}")
     print(f"Number of entries: {len(feed.entries)}")
@@ -258,59 +342,12 @@ def inspect_feed_structure(source: str):
 
 
 
-def inspect_article_webpage(source: str, limit: int = 5):
-    feed = load_feed(FEEDS[source], HTTP_TIMEOUT_OVERRIDES.get(source, HTTP_TIMEOUT))
-
-    print(f"\nSource: {source}")
-    print(f"Available entries: {len(feed.entries)}")
-
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=RECENT_HOURS)
-    count = 0
-
-    for entry in feed.entries:
-        if not entry.get("published_parsed"):
-            continue
-
-        published = datetime(
-            *entry.published_parsed[:6],
-            tzinfo=timezone.utc
-        )
-
-        if published < cutoff:
-            continue
-
-        url = entry.get("link")
-
-        if not url:
-            continue
-
-        print(f"\nArticle: {entry.get('title')}")
-        print(f"Published: {published}")
-        print(f"URL: {url}")
-
-        # Same fetch as the pipeline (add_page_content), so a failure shows
-        # the HTTP status or network error instead of a bare None
-        try:
-            text = fetch_page_text(url)
-        except requests.RequestException as e:
-            print(f"Failed to retrieve webpage: {e}")
-        else:
-            if text:
-                print(f"Extracted words: {text_length(text)}")
-                print(f"Preview: {text[:5000]}")
-            else:
-                print("Failed to extract article text")
-
-        count += 1
-        if count >= limit:
-            break
-
-
 def inspect_extraction(
     sources: list[str],
-    hours: int = RECENT_HOURS,
+    hours: int | None = None,
     limit: int = 5,
     preview_chars: int = 600,
+    fetch_pages: bool = False,
 ):
     """Run the pipeline's text steps for the given sources and show the result.
 
@@ -318,23 +355,30 @@ def inspect_extraction(
     keyword_filter() -> add_page_content(), then text_for_scoring(). For each
     article: where the text came from (feed or page), its length in
     characters and word-equivalents (textlen.py), what scoring receives after
-    the MAX_CONTENT_WORDS cap, and a preview. No LLM calls.
+    the MAX_CONTENT_WORDS cap, and the start and end of the text. No LLM calls.
+
+    sources: names from FEEDS, FEEDS_AI_CN or FEEDS_transport_CN (on-hold
+    feeds can be inspected). hours: one window for all sources (default: each
+    source's own, RECENT_HOURS or RECENT_HOURS_OVERRIDES). fetch_pages: also
+    fetch article pages for sources not in PAGE_FETCH_SOURCES, to see whether
+    adding a source there would help.
     """
     from .scoring import text_for_scoring
-    from .config import FEEDS_AI_CN
 
-    # Feeds on hold (e.g. FEEDS_AI_CN, not in FEEDS) can still be inspected
-    known = {**FEEDS_AI_CN, **FEEDS}
+    known = known_feeds()
     articles = fetch_articles({s: known[s] for s in sources})
     fetched = len(articles)
     articles = keyword_filter(filter_recent_articles(articles, hours))
     feed_text = {a.url: a.content for a in articles}
-    add_page_content(articles)
+    page_sources = PAGE_FETCH_SOURCES | set(sources) if fetch_pages else PAGE_FETCH_SOURCES
+    add_page_content(articles, page_sources)
 
     for source in sources:
         selected = [a for a in articles if a.source == source]
-        print(f"\n{'=' * 70}\n{source}: {len(selected)} articles in the last {hours} h"
-              f" (page fetch: {'yes' if source in PAGE_FETCH_SOURCES else 'no'})")
+        window = hours or RECENT_HOURS_OVERRIDES.get(source, RECENT_HOURS)
+        print(f"\n{'=' * 70}\n{source}: {len(selected)} articles in the last {window} h"
+              f" (page fetch: {'yes' if source in page_sources else 'no'}"
+              f"{', forced for inspection' if source in page_sources - PAGE_FETCH_SOURCES else ''})")
 
         for a in selected[:limit]:
             if a.content and a.content != feed_text[a.url]:
@@ -367,72 +411,10 @@ if __name__ == "__main__":
     import sys
     sys.stdout.reconfigure(encoding="utf-8")   # Chinese text, also when redirected to a file
 
-    # Chinese feeds: text as the pipeline extracts it (feed or page), what
-    # scoring receives, and a preview. Adjust hours / limit / preview_chars.
-    inspect_extraction(["QbitAI", "Leiphone AI"], hours=24, limit=5, preview_chars=600)
+    from .config import FEEDS_transport_CN
+    inspect_extraction(list(FEEDS_transport_CN), hours=48, limit=5, preview_chars=600)
 
-    # FEEDS = {"Electrek": "https://electrek.co/feed/",}
-    # inspect_article_webpage("Electrek")
-    # inspect_article_webpage("Google DeepMind")
-
-    # inspect_feed_structure("Google Research")
-    # inspect_feed_structure("Google DeepMind")
-
-    # articles = fetch_articles() + fetch_esri_articles()
-    # articles= fetch_articles()
-    # recent_articles = filter_recent_articles(articles)
-    # unique_articles = deduplicate_articles(recent_articles)
-
-    # print(f"Fetched {len(articles)} articles")
-    # print(f"Published in last {RECENT_HOURS} hours: {len(recent_articles)}")
-    # print(f"Unique: {len(unique_articles)}")
-
-    # for article in unique_articles:
-    #     print()
-    #     print(article.title)
-    #     print(article.source)
-    #     print(article.published_at)
-    #     print(article.url)
-    #     print(f"\n-----\nSummary:\n {article.summary}\n")
-    #     print(f"\n-----\nFull: {article.content}\n")
-
-
-    # for article in random.sample(unique_articles,  min(10, len(unique_articles))):
-    #     print()
-    #     print(article.title)
-    #     print(article.source)
-    #     print(article.published_at)
-    #     print(article.url)
-
-
-    # test_articles = [
-    #     Article(
-    #         title="Article A",
-    #         url="https://example.com/a",
-    #         source="Source 1",
-    #         published_at=None,
-    #         summary=None
-    #     ),
-    #     Article(
-    #         title="Article B",
-    #         url="https://example.com/b",
-    #         source="Source 2",
-    #         published_at=None,
-    #         summary=None
-    #     ),
-    #     Article(
-    #         title="Article A duplicate",
-    #         url="https://example.com/a",
-    #         source="Source 3",
-    #         published_at=None,
-    #         summary=None
-    #     ),
-    #     ]
-
-    # unique_articles = deduplicate_articles(test_articles)
-
-    # print(f"Before: {len(test_articles)}")
-    # print(f"After: {len(unique_articles)}")
-
-    # for article in unique_articles:
-    #     print(article.title, article.url)
+    # Other checks (no LLM calls); source names as in config.py:
+    # inspect_extraction(["QbitAI", "Leiphone AI"])                 # on-hold Chinese feeds
+    # inspect_extraction(["Railway-News"], fetch_pages=True)        # would page fetch help?
+    # inspect_feed_structure("Google DeepMind")                     # raw RSS fields

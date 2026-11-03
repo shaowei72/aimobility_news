@@ -6,6 +6,7 @@ from .feeds import (
     fetch_articles,
     filter_recent_articles,
     deduplicate_articles,
+    drop_previously_published,
     keyword_filter,
     add_page_content,
 )
@@ -99,6 +100,15 @@ def main(provider: str | None = None):
 
     with timed("Deduplicate"):
         unique_articles = deduplicate_articles(recent_articles)
+
+        # Never publish an article twice (longer lookback windows, reruns).
+        # A database problem only warns: the run continues without the check.
+        try:
+            with db.session() as conn:
+                already_published = db.published_urls(conn)
+            unique_articles = drop_previously_published(unique_articles, already_published)
+        except Exception as e:
+            print(f"WARNING: could not check earlier digests: {type(e).__name__}: {e}")
 
     with timed("Keyword filter"):
         # Only sources listed in FEED_KEYWORDS (none by default)

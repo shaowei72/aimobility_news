@@ -202,6 +202,18 @@ def test_summaries_are_stored_and_linked_to_the_run(fake_llm):
     assert "Summary unavailable" in markdown
 
 
+def test_published_urls_are_from_published_pipeline_items_only(fake_llm):
+    published = make_article("Published", digest_status=QUALIFIED, published=True)
+    unpublished = make_article("Unpublished", digest_status=BELOW_THRESHOLD)
+    backfilled = make_article("Backfilled", digest_status=QUALIFIED)
+    with db.session() as conn:
+        db.start_run(conn, "pipeline", run_id="p1")
+        db.save_articles(conn, "p1", [published, unpublished])
+        db.start_run(conn, "backfill aidb", run_id="b1")
+        db.save_articles(conn, "b1", [backfilled])
+        assert db.published_urls(conn) == {published.url}
+
+
 # ------------------------------------------------------------
 # AI Daily Brief story sets
 # ------------------------------------------------------------
