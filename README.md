@@ -1,6 +1,6 @@
 # AI Mobility News
 
-MVP v0.4 (in progress: SQLite news repository)
+MVP v0.4 (SQLite news repository); v0.5 (WhatsApp-ready digest) next
 
 Daily AI-powered news digest on AI and GIS applied to land transport
 (Intelligent Transportation Systems), with a separate section of the day's

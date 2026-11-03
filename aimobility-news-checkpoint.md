@@ -1,6 +1,6 @@
 # AI Mobility News App — Checkpoint
 
-_Last updated: 2026-11-03 — v0.4 (SQLite repository) in progress: database, score reuse, AI Daily Brief backfill, stored digest summaries, a digest reader and `db.py` tests done; the backfill up to date and the exit criterion remain (section 4). Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
+_Last updated: 2026-11-03 — v0.4 (SQLite repository) complete (section 4); v0.5 (WhatsApp-ready digest) next. Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
 
 ## Project
 
@@ -22,8 +22,8 @@ The digest is a "Daily Briefing" with two sections: "Intelligent Transportation 
 | **v0.1** | End-to-end MVP news pipeline | ✅ Complete |
 | **v0.2** | Source coverage (incl. Chinese-language sources), full-text extraction and relevance scoring | 🚧 In progress — Chinese sources: groundwork done, feeds on hold (section 2.8); to close before v0.4 |
 | **v0.3** | Local LLM integration using Ollama | ✅ Wrapped up (2026-11-03); Ollama benchmark and evaluation dataset deferred (section 3.6) |
-| **v0.4** | SQLite news repository | 🚧 In progress (started 2026-11-03, section 4) |
-| **v0.5** | WhatsApp-ready digest | Planned |
+| **v0.4** | SQLite news repository | ✅ Complete (2026-11-03, section 4) |
+| **v0.5** | WhatsApp-ready digest | 🚧 Next |
 | **v0.6** | Searchable web interface | Planned |
 | **v0.7** | Embeddings, semantic search and RAG | Planned |
 | **v0.8** | Agentic news research | Planned |
@@ -43,7 +43,7 @@ Revision 2026-11-03: Chinese-language sources are part of v0.2 (source coverage)
 
 ### Immediate priorities
 
-1. Finish v0.4 (section 4.4): backfill the AI Daily Brief up to date, confirm the exit criterion.
+1. v0.5: WhatsApp-ready digest (section 5).
 2. Finish the remaining v0.2 work (section 2.7): dedupe, tests, cleanup.
 3. Stabilise the transport × AI × GIS scoring and daily digest quality; the database collects every scored article from daily runs.
 4. Fix the GPU crashes under Ollama (`docs/crash-investigation-2026-11-03.md`), then return to the deferred v0.3 items (section 3.6).
@@ -341,11 +341,11 @@ Status: steps 1–3, 6 and 7 ✅ done (`059d259`, `e0fa29d`, this wrap-up); step
 
 ---
 
-## 4. v0.4 — SQLite news repository (in progress, started 2026-11-03)
+## 4. v0.4 — SQLite news repository (complete, 2026-11-03)
 
 **Scope (original):** store article metadata, dates, sources, extracted content, summaries, scores, reasons, **LLM model identifiers**, and digest status (`digest_status`, `published`). Avoid refetching and rescoring; track earlier digest appearances (e.g. AI Daily Brief on consecutive evenings); basic historical queries.
 
-**Exit criterion (proposed):** every pipeline run stores its articles, scores, published summaries and digest status; the AI Daily Brief is backfilled from 2026-10-01 to date; past digests can be read back from the database (`reader.py`); `db.py` has passing tests.
+**Exit criterion:** every pipeline run stores its articles, scores, published summaries and digest status; the AI Daily Brief is backfilled from 2026-10-01 to date; past digests can be read back from the database (`reader.py`); `db.py` has passing tests. ✅ Met on 2026-11-03: summaries confirmed on the 15:40 pipeline run; backfill from 2026-09-01; reader; 12 tests.
 
 ### 4.1 Database (`db.py`, `78f689f`)
 
@@ -369,7 +369,7 @@ One file, `output/db/news.db` (`DB_FILE`, git-ignored):
 
 ### 4.2 AI Daily Brief backfill (`backfill_aidb.py`, `78f689f`)
 
-Splits, scores and classifies every archive episode in a date range (`--since`, `--until`, `--provider`, `--dry-run`), committing per episode, so an interrupted run resumes without repeating LLM calls. A run on Ollama crashed the PC on 2026-11-03 (section 3.6); the gaps were filled on OpenAI. As of 2026-11-03: 26 episodes from 2026-10-01, backfill still running. Episodes 2026-10-27 and 2026-10-29 also have an Ollama story set, which the reader skips by default.
+Splits, scores and classifies every archive episode in a date range (`--since`, `--until`, `--provider`, `--dry-run`), committing per episode, so an interrupted run resumes without repeating LLM calls. A run on Ollama crashed the PC on 2026-11-03 (section 3.6); the gaps were filled on OpenAI. Completed 2026-11-03: all 51 archive episodes from 2026-09-01 to 2026-11-01 (the latest published), 225 stories with no failed summaries, 232 scores with none failed. Episodes 2026-10-27 and 2026-10-29 also have an Ollama story set, which the reader skips by default.
 
 ### 4.3 Digest summaries and reader (`5e94fec`, `cf59d17`)
 
@@ -384,10 +384,10 @@ Decided against (2026-11-03), because production runs once a day at a fixed time
 - **Track earlier digest appearances:** an episode is stamped 23:59 UTC (07:59 Singapore time), so a fixed evening run sees each episode once; repeats only arise from runs before ~08:00 or several runs a day. `digest_items` already holds the history if this is needed later. Same story under different URLs or sources is semantic matching, for v0.7.
 - **Historical queries** beyond the reader and `--stats` (score history per article, top articles by source) wait for v0.6.
 
-Remaining:
+Remaining (all done):
 - [x] Tests for `db.py` (`tests/test_db.py`, 12 tests, `uv run pytest`): schema and migration of an older database, one article row per URL, score reuse (identical prompt reused; changed text or model rescored; failures not reused; reused scores not stored twice), summaries stored and linked, story sets and `build_stories()` reuse, idempotent legacy import, backfill resume after a crash with no repeated LLM calls. Temporary database and a fake LLM, so no API calls and `news.db` is never opened; `connect()`/`session()` now read `DB_PATH` at call time for this. pytest added as a dev dependency.
-- [ ] Finish the backfill and fill any gap up to today (2026-11-02 onwards)
-- [ ] Confirm the exit criterion
+- [x] Finish the backfill: complete from 2026-09-01; no episodes after 2026-11-01 were published yet, and daily runs pick up new ones
+- [x] Confirm the exit criterion
 
 ITS history in the database starts on 2026-11-03 (three imported runs and the first stored run); earlier ITS digests exist only as Markdown in `output/`.
 
@@ -573,11 +573,11 @@ b10c490 Reduce scoring.py __main__ to a single-article test
 
 ## Resume point
 
-v0.4 is in progress (section 4): the pipeline stores every run in `output/db/news.db` (articles, scores, published summaries, digest status), reuses scores for identical prompts, and `reader.py` reads past digests back by day. The AI Daily Brief backfill from 2026-10-01 is running on OpenAI. v0.3 is wrapped up on OpenAI; Chinese-language sources are ready but on hold (section 2.8). Runs use OpenAI; `RECENT_HOURS = 24`.
+v0.4 is complete (section 4): the pipeline stores every run in `output/db/news.db` (articles, scores, published summaries, digest status), reuses scores for identical prompts, `reader.py` reads past digests back by day, and the AI Daily Brief is backfilled from 2026-09-01. v0.5 (WhatsApp-ready digest) is next. v0.3 is wrapped up on OpenAI; Chinese-language sources are ready but on hold (section 2.8). Runs use OpenAI; `RECENT_HOURS = 24`.
 
 Next:
 
-1. v0.4 (section 4.4): finish the backfill up to today, confirm the exit criterion.
+1. v0.5: WhatsApp-ready digest (section 5).
 2. Remaining v0.2 work (section 2.7): better dedupe, pytest tests for the pipeline functions (pytest is set up), cleanup.
 3. Tune thresholds from the debug digests.
 4. Fix the GPU, then the deferred v0.3 items (section 3.6): evaluation dataset, Ollama benchmark, Ollama exit criterion.
