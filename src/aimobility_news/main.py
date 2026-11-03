@@ -18,10 +18,11 @@ from .ranking import (
     select_ai_headlines,
 )
 from .digest import generate_digest, generate_debug_digest, save_digest
+from .digest_whatsapp import build_whatsapp, copy_to_clipboard
 from . import db
 from .esri_search import fetch_esri_articles
 from .aidailybrief import fetch_aidailybrief_stories
-from .config import TOP_RANKED, MIN_TOTAL_SCORE, AIDB_HEADLINES_MAX
+from .config import TOP_RANKED, MIN_TOTAL_SCORE, AIDB_HEADLINES_MAX, WHATSAPP_COPY_TO_CLIPBOARD
 
 
 timings = {}
@@ -136,6 +137,18 @@ def main(provider: str | None = None):
         #     db.reuse_summaries(conn, published)
         digest = generate_digest(ranked_articles, ai_headlines)
 
+    # Before the database save, so the one-liners are stored with the
+    # summaries. A failure here only warns; the Markdown digest is unaffected.
+    with timed("WhatsApp text"):
+        try:
+            whatsapp = build_whatsapp(ranked_articles, ai_headlines)
+            whatsapp_path = save_digest(whatsapp, prefix="whatsapp", suffix=".txt")
+            whatsapp_message = f"WhatsApp text saved to: {whatsapp_path}"
+            if WHATSAPP_COPY_TO_CLIPBOARD and copy_to_clipboard(whatsapp):
+                whatsapp_message += " (copied to the clipboard: paste into WhatsApp)"
+        except Exception as e:
+            whatsapp_message = f"WARNING: WhatsApp text failed: {type(e).__name__}: {e}"
+
     with timed("Save"):
         file_path = save_digest(digest)
 
@@ -153,6 +166,7 @@ def main(provider: str | None = None):
 
     print(f"Digest saved to: {file_path}")
     print(f"Debug digest saved to: {debug_file_path}")
+    print(whatsapp_message)
     print(db_message)
 
     print_timing_summary(time.perf_counter() - total_start)

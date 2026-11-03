@@ -221,6 +221,16 @@ AIDB_SOURCE = "AI Daily Brief"
 AIDB_HEADLINES_MAX = 4
 AIDB_HEADLINES_MIN_AI_SCORE = 3
 
+# WhatsApp-ready digest (digest_whatsapp.py): a compact plain-text version of
+# the Daily Briefing, written to output/whatsapp-YYYY-MM-DD.txt for manual
+# copy/paste. ITS items get a one-line summary (one LLM call for all of
+# them); AI Daily Brief items use the story headline.
+WHATSAPP_MAX_ITS = 5               # of the up to TOP_RANKED published ITS items
+WHATSAPP_MAX_AIDB = 3              # of the up to AIDB_HEADLINES_MAX AI headlines
+WHATSAPP_INCLUDE_NOTABLE = True    # include "Also notable" ITS items
+WHATSAPP_ONE_LINERS = True         # False: headlines and links only, no LLM call
+WHATSAPP_COPY_TO_CLIPBOARD = True  # also put the text on the Windows clipboard
+
 # Cap on full-text words sent to the LLM for scoring
 MAX_CONTENT_WORDS = 1500
 

@@ -7,6 +7,7 @@ import pytest
 
 from aimobility_news import db, llm
 from aimobility_news.digest import DigestEntry
+from aimobility_news.digest_whatsapp import OneLiner, OneLiners
 from aimobility_news.models import Article
 from aimobility_news.scoring import ArticleScore
 
@@ -42,8 +43,12 @@ class FakeLLM:
             return ArticleScore(transport_reason="t", transport_score=3,
                                 ai_reason="a", ai_score=4, gis_reason="g", gis_score=1)
         if schema is DigestEntry:
-            return DigestEntry(title_en="", summary=f"Summary of {label}",
+            return DigestEntry(title_en="", summary=f"Summary of {label}. Second sentence.",
                                why_it_matters=f"Why {label}")
+        if schema is OneLiners:
+            n_items = prompt.count("\nSummary: ")
+            return OneLiners(lines=[OneLiner(number=n, line=f"One-liner {n}")
+                                    for n in range(1, n_items + 1)])
         raise AssertionError(f"unexpected schema {schema}")
 
     def count(self, task):

@@ -33,3 +33,4 @@ class Article:
     summarised_by: str | None = None   # provider:model
     summary_error: str | None = None   # set when the digest call failed; fields above stay None
     summary_id: int | None = None      # summaries.id in the database (db.py), set when stored or reused
+    one_liner: str | None = None       # set by digest_whatsapp.add_one_liners() for WhatsApp ITS items

@@ -285,18 +285,19 @@ def save_digest(
     digest: str,
     output_dir: Path = PROJECT_ROOT / "output",
     prefix: str = "digest",
+    suffix: str = ".md",
 ) -> Path:
     output_path = Path(output_dir)
 
     output_path.mkdir(exist_ok=True)
 
     base_name = f"{prefix}-{datetime.now():%Y-%m-%d}"
-    file_path = output_path / f"{base_name}.md"
+    file_path = output_path / f"{base_name}{suffix}"
 
     counter = 1
 
     while file_path.exists():
-        file_path = output_path / f"{base_name}({counter}).md"
+        file_path = output_path / f"{base_name}({counter}){suffix}"
         counter += 1
 
     file_path.write_text(digest, encoding="utf-8")

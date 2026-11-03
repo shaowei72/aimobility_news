@@ -61,6 +61,27 @@ def test_migrate_adds_summary_id_to_an_older_database(temp_db):
         pass
 
 
+def test_migrate_adds_one_liner_to_a_v04_summaries_table(temp_db):
+    temp_db.parent.mkdir(parents=True)
+    old = sqlite3.connect(temp_db)
+    old.executescript("""
+        CREATE TABLE summaries (
+            id INTEGER PRIMARY KEY, article_id INTEGER NOT NULL, run_id TEXT,
+            summarised_at TEXT NOT NULL, summarised_by TEXT NOT NULL, code_version TEXT,
+            prompt_hash TEXT, title_en TEXT, summary TEXT, why_it_matters TEXT, error TEXT);
+        INSERT INTO summaries (article_id, summarised_at, summarised_by, summary)
+        VALUES (1, 'now', 'openai:m', 'Old summary.');
+    """)
+    old.commit()
+    old.close()
+
+    with db.session() as conn:
+        columns = [r["name"] for r in conn.execute("PRAGMA table_info(summaries)")]
+        row = conn.execute("SELECT summary, one_liner FROM summaries").fetchone()
+    assert "one_liner" in columns
+    assert (row["summary"], row["one_liner"]) == ("Old summary.", None)
+
+
 # ------------------------------------------------------------
 # Articles
 # ------------------------------------------------------------
@@ -170,7 +191,7 @@ def test_summaries_are_stored_and_linked_to_the_run(fake_llm):
         assert count(conn, "summaries") == 2
 
     assert fake_llm.count("digest") == 2          # published articles only
-    assert rows["Good"]["summary"] == "Summary of Good"
+    assert rows["Good"]["summary"] == "Summary of Good. Second sentence."
     assert rows["Good"]["why_it_matters"] == "Why Good"
     assert rows["Good"]["summarised_by"] == llm.describe("digest")
     assert rows["Good"]["prompt_hash"] == db.prompt_hash(digest.digest_prompt(good))

@@ -10,7 +10,7 @@ One database file (DB_FILE, default output/db/news.db) holds:
                     Several rows per article (re-scores, other models).
     summaries       every digest summary of a published ITS article: model,
                     a hash of the exact prompt, title_en, summary, why it
-                    matters, error
+                    matters, error, and the WhatsApp one-liner (v0.5)
     digest_items    per run and article: digest status, published, section,
                     and the score and summary used
     aidb_episodes   AI Daily Brief episodes (date, title, lead)
@@ -107,7 +107,8 @@ CREATE TABLE IF NOT EXISTS summaries (
     title_en       TEXT,
     summary        TEXT,
     why_it_matters TEXT,
-    error          TEXT                -- set when the digest call failed
+    error          TEXT,               -- set when the digest call failed
+    one_liner      TEXT                -- WhatsApp one-line summary (digest_whatsapp.py)
 );
 CREATE INDEX IF NOT EXISTS summaries_article ON summaries(article_id);
 
@@ -158,14 +159,20 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
+# Columns added after a table was first created: (table, column, definition)
+ADDED_COLUMNS = [
+    ("digest_items", "summary_id", "INTEGER REFERENCES summaries(id)"),   # v0.4
+    ("summaries", "one_liner", "TEXT"),                                   # v0.5
+]
+
+
 def migrate(conn: sqlite3.Connection) -> None:
-    # Columns added after a table was first created; CREATE TABLE IF NOT
-    # EXISTS does not add them to an existing database
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(digest_items)")}
-    if "summary_id" not in columns:
-        conn.execute(
-            "ALTER TABLE digest_items ADD COLUMN summary_id INTEGER REFERENCES summaries(id)"
-        )
+    # CREATE TABLE IF NOT EXISTS does not add new columns to an existing
+    # database, so add any that are missing
+    for table, column, definition in ADDED_COLUMNS:
+        columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 @contextmanager
@@ -312,12 +319,12 @@ def insert_summary(conn: sqlite3.Connection, article_id: int, article: Article, 
     cur = conn.execute(
         """
         INSERT INTO summaries (article_id, run_id, summarised_at, summarised_by, code_version,
-                               prompt_hash, title_en, summary, why_it_matters, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               prompt_hash, title_en, summary, why_it_matters, error, one_liner)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (article_id, run_id, now_utc(), article.summarised_by, code_version(),
          prompt_hash(digest_prompt(article)), article.title_en, article.digest_summary,
-         article.why_it_matters, article.summary_error),
+         article.why_it_matters, article.summary_error, article.one_liner),
     )
     return cur.lastrowid
 
