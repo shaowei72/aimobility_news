@@ -6,6 +6,7 @@ from .feeds import (
     fetch_articles,
     filter_recent_articles,
     deduplicate_articles,
+    keyword_filter,
     add_page_content,
 )
 from . import llm
@@ -97,6 +98,10 @@ def main(provider: str | None = None):
 
     with timed("Deduplicate"):
         unique_articles = deduplicate_articles(recent_articles)
+
+    with timed("Keyword filter"):
+        # Only sources listed in FEED_KEYWORDS (none by default)
+        unique_articles = keyword_filter(unique_articles)
 
     with timed("Fetch article pages"):
         unique_articles = add_page_content(unique_articles)

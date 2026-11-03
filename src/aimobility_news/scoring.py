@@ -2,6 +2,7 @@ from .models import Article
 from pydantic import BaseModel, Field
 from . import llm
 from .config import MAX_CONTENT_WORDS
+from .textlen import truncate_text
 
 # Reasons come before scores so the model explains first, then scores.
 # Field order follows the prompt: transport, AI, GIS.
@@ -16,10 +17,11 @@ class ArticleScore(BaseModel):
     gis_score: int = Field(ge=0, le=5)
 
 def text_for_scoring(article: Article) -> tuple[str, str | None]:
-    # Prefer the full article text when the feed provides it, capped for cost
+    # Prefer the full article text when the feed provides it, capped for cost.
+    # The cap is in English-word equivalents, so Chinese text is capped at
+    # about the same amount of content (textlen.py).
     if article.content:
-        words = article.content.split()
-        return "Article full text", " ".join(words[:MAX_CONTENT_WORDS])
+        return "Article full text", truncate_text(article.content, MAX_CONTENT_WORDS)
     return "Article summary", article.summary
 
 
@@ -275,6 +277,10 @@ GENERAL SCORING RULES
 
 12. Provide a concise, evidence-based, one-sentence
     explanation for each domain score.
+
+13. The article may be in another language (e.g. Chinese).
+    Score it on the same basis, and always write the
+    explanations in English.
 
 Return the three scores and their explanations using
 the existing structured output schema.

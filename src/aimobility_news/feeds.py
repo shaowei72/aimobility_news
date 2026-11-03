@@ -2,17 +2,51 @@ import requests
 import feedparser
 from datetime import datetime, timezone, timedelta
 import random
+import time
 import trafilatura
 from bs4 import BeautifulSoup
 
 from .models import Article
+from .textlen import text_length
 from .config import (
     FEEDS,
     RECENT_HOURS,
     FULL_TEXT_MIN_WORDS,
+    MAX_CONTENT_WORDS,
     PAGE_FETCH_SOURCES,
+    HTTP_TIMEOUT,
+    HTTP_TIMEOUT_OVERRIDES,
+    HTTP_RETRIES,
+    FEED_KEYWORDS,
 )
 from .esri_search import fetch_esri_articles
+
+
+def http_get(url: str, timeout: float = HTTP_TIMEOUT) -> requests.Response:
+    """GET with HTTP_RETRIES retries on timeouts, connection errors and 5xx.
+
+    4xx responses (403, 404, ...) are not retried: they rarely change on a
+    second try. Raises requests.RequestException after the last attempt.
+    """
+    transient = (
+        requests.Timeout,
+        requests.ConnectionError,
+        requests.exceptions.ChunkedEncodingError,   # "Response ended prematurely"
+    )
+    for attempt in range(HTTP_RETRIES + 1):
+        last = attempt == HTTP_RETRIES
+        try:
+            response = requests.get(
+                url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout
+            )
+        except transient:
+            if last:
+                raise
+        else:
+            if response.status_code < 500 or last:
+                response.raise_for_status()
+                return response
+        time.sleep(2)
 
 
 def html_to_text(html: str | None) -> str | None:
@@ -34,24 +68,18 @@ def extract_content(entry, summary: str | None) -> str | None:
 
     longest = max(
         (text for text in candidates if text),
-        key=lambda text: len(text.split()),
+        key=text_length,
         default=None,
     )
 
-    if longest and len(longest.split()) >= FULL_TEXT_MIN_WORDS:
+    if longest and text_length(longest) >= FULL_TEXT_MIN_WORDS:
         return longest
 
     return None
 
 
 def fetch_page_text(url: str) -> str | None:
-    response = requests.get(
-        url,
-        headers={"User-Agent": "Mozilla/5.0"},
-        timeout=20
-    )
-
-    response.raise_for_status()
+    response = http_get(url)
 
     return trafilatura.extract(
         response.text,
@@ -76,8 +104,8 @@ def add_page_content(articles):
             print(f"WARNING: page fetch failed for {article.url}: {e}")
             continue
 
-        page_words = len(text.split()) if text else 0
-        feed_words = len(article.content.split()) if article.content else 0
+        page_words = text_length(text)
+        feed_words = text_length(article.content)
 
         if page_words >= FULL_TEXT_MIN_WORDS and page_words > feed_words:
             article.content = text
@@ -87,25 +115,39 @@ def add_page_content(articles):
     return articles
 
 
-def load_feed(url: str):
-    response = requests.get(
-        url,
-        headers={"User-Agent": "Mozilla/5.0"},
-        timeout=20
-    )
-
-    response.raise_for_status()
-
-    return feedparser.parse(response.content)
+def load_feed(url: str, timeout: float = HTTP_TIMEOUT):
+    return feedparser.parse(http_get(url, timeout).content)
 
 
+def keyword_filter(articles: list[Article]) -> list[Article]:
+    # For high-volume general feeds listed in FEED_KEYWORDS, keep only articles
+    # whose title, summary or full text contains one of that source's keywords
+    # (case-insensitive), so they are not all sent to the LLM for scoring.
+    # Other sources pass through unchanged.
+    kept = []
+    dropped: dict[str, int] = {}
+    for article in articles:
+        keywords = FEED_KEYWORDS.get(article.source)
+        if keywords:
+            text = " ".join(
+                t for t in (article.title, article.summary, article.content) if t
+            ).lower()
+            if not any(k.lower() in text for k in keywords):
+                dropped[article.source] = dropped.get(article.source, 0) + 1
+                continue
+        kept.append(article)
+    for source, n in dropped.items():
+        print(f"Keyword filter: {n} {source} articles dropped")
+    return kept
 
-def fetch_articles():
+
+def fetch_articles(feeds: dict[str, str] | None = None):
+    # feeds: {source: url}; defaults to all FEEDS
     articles = []
 
-    for source, url in FEEDS.items():
+    for source, url in (feeds or FEEDS).items():
         try:
-            feed = load_feed(url)
+            feed = load_feed(url, HTTP_TIMEOUT_OVERRIDES.get(source, HTTP_TIMEOUT))
         except requests.RequestException as e:
             print(f"WARNING: skipping {source}: {e}")
             continue
@@ -177,7 +219,7 @@ def inspect_feed_structure(source: str):
         print(f"Source not found: {source}")
         return
 
-    feed = load_feed(FEEDS[source])
+    feed = load_feed(FEEDS[source], HTTP_TIMEOUT_OVERRIDES.get(source, HTTP_TIMEOUT))
 
     print(f"\nSource: {source}")
     print(f"Number of entries: {len(feed.entries)}")
@@ -200,24 +242,24 @@ def inspect_feed_structure(source: str):
     summary = html_to_text(entry.get("summary"))
     content_list = entry.get("content", [])
 
-    print(f"Summary words: {len(summary.split()) if summary else 0}")
+    print(f"Summary words: {text_length(summary)}")
     print(f"Content elements: {len(content_list)}")
 
     for i, content in enumerate(content_list):
         text = html_to_text(content.get("value"))
         print(f"Content[{i}] type: {content.get('type')}")
-        print(f"Content[{i}] words: {len(text.split()) if text else 0}")
+        print(f"Content[{i}] words: {text_length(text)}")
         print(f"Content[{i}] preview: {(text or '')[:500]}")
 
     print(f"\nSummary preview: {(summary or '')[:500]}")
 
     selected = extract_content(entry, summary)
-    print(f"\nExtracted content words: {len(selected.split()) if selected else 0}")
+    print(f"\nExtracted content words: {text_length(selected)}")
 
 
 
 def inspect_article_webpage(source: str, limit: int = 5):
-    feed = load_feed(FEEDS[source])
+    feed = load_feed(FEEDS[source], HTTP_TIMEOUT_OVERRIDES.get(source, HTTP_TIMEOUT))
 
     print(f"\nSource: {source}")
     print(f"Available entries: {len(feed.entries)}")
@@ -254,7 +296,7 @@ def inspect_article_webpage(source: str, limit: int = 5):
             print(f"Failed to retrieve webpage: {e}")
         else:
             if text:
-                print(f"Extracted words: {len(text.split())}")
+                print(f"Extracted words: {text_length(text)}")
                 print(f"Preview: {text[:5000]}")
             else:
                 print("Failed to extract article text")
@@ -264,10 +306,73 @@ def inspect_article_webpage(source: str, limit: int = 5):
             break
 
 
+def inspect_extraction(
+    sources: list[str],
+    hours: int = RECENT_HOURS,
+    limit: int = 5,
+    preview_chars: int = 600,
+):
+    """Run the pipeline's text steps for the given sources and show the result.
+
+    Same steps as main.py up to scoring: fetch_articles() -> recency filter ->
+    keyword_filter() -> add_page_content(), then text_for_scoring(). For each
+    article: where the text came from (feed or page), its length in
+    characters and word-equivalents (textlen.py), what scoring receives after
+    the MAX_CONTENT_WORDS cap, and a preview. No LLM calls.
+    """
+    from .scoring import text_for_scoring
+    from .config import FEEDS_AI_CN
+
+    # Feeds on hold (e.g. FEEDS_AI_CN, not in FEEDS) can still be inspected
+    known = {**FEEDS_AI_CN, **FEEDS}
+    articles = fetch_articles({s: known[s] for s in sources})
+    fetched = len(articles)
+    articles = keyword_filter(filter_recent_articles(articles, hours))
+    feed_text = {a.url: a.content for a in articles}
+    add_page_content(articles)
+
+    for source in sources:
+        selected = [a for a in articles if a.source == source]
+        print(f"\n{'=' * 70}\n{source}: {len(selected)} articles in the last {hours} h"
+              f" (page fetch: {'yes' if source in PAGE_FETCH_SOURCES else 'no'})")
+
+        for a in selected[:limit]:
+            if a.content and a.content != feed_text[a.url]:
+                origin = "page"
+            elif a.content:
+                origin = "feed (full text)"
+            else:
+                origin = "feed summary only"
+            label, text = text_for_scoring(a)
+            text = text or ""
+
+            print(f"\n--- {a.title}")
+            print(f"Published:   {a.published_at}")
+            print(f"URL:         {a.url}")
+            print(f"Feed text:   {len(feed_text[a.url] or a.summary or '')} chars, "
+                  f"{text_length(feed_text[a.url] or a.summary)} word-eq")
+            print(f"Text used:   {origin}, {len(a.content or a.summary or '')} chars, "
+                  f"{text_length(a.content or a.summary)} word-eq")
+            print(f"To scoring:  {label}, {len(text)} chars, {text_length(text)} word-eq"
+                  f" (cap {MAX_CONTENT_WORDS})")
+            print(f"Preview:     {text[:preview_chars]}")
+            if len(text) > preview_chars:
+                print(f"...          {text[-200:]}")
+
+    print(f"\n{fetched} entries fetched, {len(articles)} recent")
+
+
 
 if __name__ == "__main__":
-    FEEDS = {"Electrek": "https://electrek.co/feed/",}
-    inspect_article_webpage("Electrek")
+    import sys
+    sys.stdout.reconfigure(encoding="utf-8")   # Chinese text, also when redirected to a file
+
+    # Chinese feeds: text as the pipeline extracts it (feed or page), what
+    # scoring receives, and a preview. Adjust hours / limit / preview_chars.
+    inspect_extraction(["QbitAI", "Leiphone AI"], hours=24, limit=5, preview_chars=600)
+
+    # FEEDS = {"Electrek": "https://electrek.co/feed/",}
+    # inspect_article_webpage("Electrek")
     # inspect_article_webpage("Google DeepMind")
 
     # inspect_feed_structure("Google Research")

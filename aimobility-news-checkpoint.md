@@ -1,6 +1,6 @@
 # AI Mobility News App — Checkpoint
 
-_Last updated: 2026-11-03 — v0.3 wrapped up on OpenAI; Ollama benchmarking and the evaluation dataset deferred until the GPU is fixed_
+_Last updated: 2026-11-03 — Chinese-language sources prepared but on hold (section 2.8); v0.3 wrapped up on OpenAI, with the Ollama benchmark and evaluation dataset deferred until the GPU is fixed_
 
 ## Project
 
@@ -20,7 +20,7 @@ The digest is a "Daily Briefing" with two sections: "Intelligent Transportation 
 | Version | Focus | Status |
 |---|---|---|
 | **v0.1** | End-to-end MVP news pipeline | ✅ Complete |
-| **v0.2** | Source coverage, full-text extraction and relevance scoring | 🚧 In progress |
+| **v0.2** | Source coverage (incl. Chinese-language sources), full-text extraction and relevance scoring | 🚧 In progress — Chinese sources: groundwork done, feeds on hold (section 2.8); to close before v0.4 |
 | **v0.3** | Local LLM integration using Ollama | ✅ Wrapped up (2026-11-03); Ollama benchmark and evaluation dataset deferred (section 3.6) |
 | **v0.4** | SQLite news repository | Planned |
 | **v0.5** | WhatsApp-ready digest | Planned |
@@ -29,6 +29,8 @@ The digest is a "Daily Briefing" with two sections: "Intelligent Transportation 
 | **v0.8** | Agentic news research | Planned |
 
 Changes from the previous roadmap: local LLM inference via Ollama is inserted as v0.3, and every later version moves down one number. Automatic WhatsApp delivery remains out of scope.
+
+Revision 2026-11-03: Chinese-language sources are part of v0.2 (source coverage). v0.2 is to be closed before v0.4 starts, although v0.3 was wrapped up first.
 
 ### Engineering principles (all releases)
 
@@ -41,10 +43,11 @@ Changes from the previous roadmap: local LLM inference via Ollama is inserted as
 
 ### Immediate priorities
 
-1. Finish the remaining v0.2 work (section 2.7): full text for the newer feeds, dedupe, tests, cleanup.
-2. Stabilise the transport × AI × GIS scoring and daily digest quality; let the candidate pool grow from daily runs.
-3. Fix the GPU crashes under Ollama (`docs/crash-investigation-2026-11-03.md`), then return to the deferred v0.3 items (section 3.6).
-4. Start v0.4 (SQLite repository) when v0.2 is closed.
+1. Chinese-language sources are on hold (section 2.8): the groundwork is in place; re-enable `FEEDS_AI_CN` in `config.py` when ready.
+2. Finish the remaining v0.2 work (section 2.7): dedupe, tests, cleanup.
+3. Stabilise the transport × AI × GIS scoring and daily digest quality; let the candidate pool grow from daily runs.
+4. Fix the GPU crashes under Ollama (`docs/crash-investigation-2026-11-03.md`), then return to the deferred v0.3 items (section 3.6).
+5. Start v0.4 (SQLite repository) when v0.2 is closed.
 
 ---
 
@@ -74,11 +77,12 @@ First successful end-to-end run: 2026-10-10. Released in commit `8a47bfa`.
 
 ### 2.2 Feed set (`config.py`)
 
-`FEEDS` merges three groups:
+`FEEDS` merges four groups:
 
-- **`FEEDS_transport`:** MIT Autonomous Vehicles, InsideEVs Autonomous Vehicles, ADAS & Autonomous Vehicle International, The Robot Report (**403**), IEEE Spectrum Robotics, TransportXtra Technology, TransportXtra Passenger Technology, Smart Cities Dive, Tech Xplore Automotive, Railway-News, Railway Age. Commented out to test: TechCrunch Transportation, The Verge Transportation, Electrek, Transport Topics, ITS International (403).
+- **`FEEDS_transport`:** TechCrunch Transportation, The Verge Transportation, Electrek (all three added 2026-11-03 with page fetch, `e4475c5`), MIT Autonomous Vehicles, InsideEVs Autonomous Vehicles, ADAS & Autonomous Vehicle International, The Robot Report (**403**), IEEE Spectrum Robotics, TransportXtra Technology, TransportXtra Passenger Technology, Smart Cities Dive, Tech Xplore Automotive, Railway-News, Railway Age. Commented out to test: Transport Topics, ITS International (403).
 - **`FEEDS_AI`:** IEEE Spectrum Full Text, NVIDIA Blog, Google Research, Google DeepMind, Berkeley AI Research, Hugging Face Blog, Tech Xplore Robotics, Tech Xplore AI, NVIDIA Developer Robotics, InsideEVs Artificial Intelligence.
 - **`FEEDS_gis`:** Open Geospatial Consortium, GeoAI Signal, GeoAI Unpacked, Geospatial Law. Geospatial World commented out.
+- **`FEEDS_AI_CN`:** Leiphone AI, QbitAI (Chinese; section 2.8). **On hold:** defined but commented out of `FEEDS`.
 
 Esri search and AI Daily Brief run on every pipeline run, independent of `FEEDS`.
 
@@ -148,7 +152,8 @@ else                                                         → below threshold
 ### 2.5 Full-text scoring (`6581a8e`)
 
 - `Article.content` holds full plain text when available. `extract_content()` uses the longest of `entry.content` and the summary if it has ≥ `FULL_TEXT_MIN_WORDS` (150) words.
-- For `PAGE_FETCH_SOURCES` (Google Research, Google DeepMind, Hugging Face Blog) the webpage is fetched with `requests` + `trafilatura`, **after** recency filtering and deduplication.
+- For `PAGE_FETCH_SOURCES` (Google Research, Google DeepMind, Hugging Face Blog, TechCrunch Transportation, The Verge Transportation, Electrek, QbitAI) the webpage is fetched with `requests` + `trafilatura`, **after** recency filtering and deduplication. The longer of the feed text and the page text is kept (since `e4475c5`; before, the page was fetched only when the feed had no full text).
+- Word counts and the cap use `textlen.py` (section 2.8): each Chinese character counts as 1/1.5 word; English text counts exactly as `len(text.split())`.
 - Scoring and digest generation use `text_for_scoring()`: full text capped at `MAX_CONTENT_WORDS` (1,500), otherwise the summary.
 
 Full-text availability checked on 2026-10-28:
@@ -169,6 +174,8 @@ The transport and AI feeds added since then have not been checked yet.
 ### 2.6 Robustness and tooling
 
 - One failing feed no longer aborts the run (per-feed `requests.RequestException` handling).
+- Feeds and article pages are fetched with `feeds.http_get()`: `HTTP_TIMEOUT` (20 s, per feed in `HTTP_TIMEOUT_OVERRIDES`), and `HTTP_RETRIES` (1) retry after 2 s on timeouts, connection errors, truncated responses and 5xx. 4xx responses are not retried.
+- `inspect_article_webpage()` fetches like the pipeline and prints the HTTP status or error on failure.
 - `validate_feeds.py` reports HTTP status, content type and parse errors.
 - `main.py` times each step and prints a summary, slowest first.
 - `feeds.py` debugging helpers: `inspect_feed_structure()`, `inspect_article_webpage()`.
@@ -178,7 +185,7 @@ The transport and AI feeds added since then have not been checked yet.
 **Sources and extraction**
 - [x] AI Daily Brief: use the `.md` digest / `transcript.md` as full text; split editions into individual stories (done in v0.3, section 3.5)
 - [ ] Separate source discovery from article extraction
-- [ ] Check full-text availability for the new transport and AI feeds; add summary-only sources to `PAGE_FETCH_SOURCES` where pages extract cleanly
+- [ ] Check full-text availability for the new transport and AI feeds; add summary-only sources to `PAGE_FETCH_SOURCES` where pages extract cleanly (done for TechCrunch Transportation, The Verge Transportation, Electrek and QbitAI)
 - [ ] Summarise published articles from the full webpage text instead of the RSS teaser (fetch only for the ≤ 8 published items; larger word cap for the digest than for scoring)
 - [ ] Remove or replace The Robot Report (403)
 - [ ] Continue searching for AI-in-transport / ITS / Singapore sources; consider per-source lookback windows for weekly sources
@@ -193,7 +200,7 @@ The transport and AI feeds added since then have not been checked yet.
 - [ ] Warn when the AI Daily Brief archive returns no editions at all (distinct from none in the time window)
 - [ ] Esri search: restrict to `https://www.esri.com/arcgis-blog/` URLs; its model-written summary may inflate scores; it requests 7 days but most results are then filtered out
 - [ ] Strip `script`, `style` and `figcaption` in `html_to_text()`
-- [ ] Retry failed API calls (Ollama retries once on invalid JSON; HTTP errors and OpenAI calls are not retried)
+- [ ] Retry failed API calls: feed and page fetches now retry once (`http_get()`, section 2.6); LLM calls still do not, apart from Ollama's one retry on invalid JSON
 - [ ] `validate_feeds.py`: reuse `load_feed()`; report dated, recent and full-text entries
 - [ ] Add pytest tests with hand-built `Article` objects (filtering, dedupe, `combine_scores()`, classification, `extract_content()`, `text_for_scoring()`)
 
@@ -202,6 +209,42 @@ The transport and AI feeds added since then have not been checked yet.
 - [ ] Remove unused imports in `feeds.py` (`random`, `fetch_esri_articles`)
 - [ ] Remove `playwright` from `pyproject.toml`; declare `pydantic`
 - [ ] Regenerate `docs/sample-digest.md` (current sample is from v0.1)
+
+### 2.8 Chinese-language sources (started 2026-11-03; on hold)
+
+**Status:** on hold since 2026-11-03. The groundwork below is in the pipeline and applies to every source; Leiphone AI and QbitAI are defined in `FEEDS_AI_CN` but `**FEEDS_AI_CN` is commented out of `FEEDS`, so no Chinese feed runs. To resume: uncomment it, then work through **Next** below. `uv run python -m aimobility_news.feeds` runs `inspect_extraction()` on the two feeds (on hold or not) to check their text without LLM calls.
+
+**Objective:** cover Chinese AI and transport developments alongside the English sources, with the digest still readable in English.
+
+**Groundwork (done):**
+- **Text length for Chinese** (`textlen.py`): `split()` counts a whole Chinese paragraph as one or a few words. That made full text look like a teaser (a 1,734-character QbitAI page counted as 19 words) and let the scoring cap pass ~50,000-character texts. `text_length()` counts each CJK character as 1/1.5 word, so `FULL_TEXT_MIN_WORDS` (150 ≈ 225 characters) and `MAX_CONTENT_WORDS` (1,500 ≈ 2,250 characters) mean about the same amount of content in both languages. English text gets exactly the old counts (checked on all 85 texts in the candidate pool). Used in `extract_content()`, `add_page_content()`, `text_for_scoring()`, the debug digest and the pool.
+- **English output:** the scoring prompt asks for English reasons whatever the article's language. The digest prompt asks for an English summary and "why it matters", and returns `title_en`, an English translation of a non-English title (empty for English titles).
+- **Digest titles:** the original title first, then the English translation underneath in italics, only when there is one.
+- **HTTP retry and per-feed timeouts** (`http_get()`, section 2.6). Leiphone AI has a 60 s timeout: its feeds are 1–3.5 MB and its server is slow.
+- **Keyword pre-filter** (`keyword_filter()`, `FEED_KEYWORDS`): for high-volume general feeds, only articles containing one of the source's keywords are scored. Runs after dedupe, before page fetch. Empty for now; an ITHome keyword list is ready in `config.py`.
+
+**Feeds (tested 2026-11-03):**
+
+| Feed | Result | Status |
+|---|---|---|
+| Leiphone AI | Full text in the feed (4,500–6,000 characters); ~3 articles / day | Ready, on hold |
+| QbitAI | Feed has only the title; pages extract (1,700–7,200 characters); ~9 articles / day | Ready (with page fetch), on hold |
+| Leiphone Intelligent Driving | Works on retry (502 first); full text; ~2 articles / 72 h | Candidate |
+| Leiphone AI Research | Works on retry (timeout first); newest article 89 h old | Candidate (rarely in a 24 h window) |
+| ITHome | Full text in the feed; ~350 articles / day, mostly consumer tech | Candidate, only with `FEED_KEYWORDS` |
+| Leiphone Smart Transportation | Newest entry ~3.6 years old | ❌ Dropped (abandoned) |
+| 36Kr Articles (`36kr.com/feed-article`) | Serves an HTML page, not RSS | ❌ Dropped unless a working URL is found |
+| Tropical Geography (Remote Sensing & GIS; AI & Geography), Acta Geographica (GIS) | Connection timeouts or HTML error pages, possibly unreachable from outside China; journals publish monthly or bimonthly | ❌ Dropped; park for v0.8 (research), not the daily digest |
+
+First check (2 articles, OpenAI): reasons, summary and "why it matters" came back in English, and titles were translated, e.g. "90 后北大副教授董豪：启元机器人，正在勇闯具身终局" → "Dong Hao, a Peking University Associate Professor Born in the 1990s: Qiyuan Robotics Pushes Toward the Embodied AI Endgame". Both scored T1 / A2 / G0 (interview and event coverage, not deployments).
+
+**Next:**
+- [ ] Re-enable `FEEDS_AI_CN` in `FEEDS`.
+- [ ] Run daily for several days and review the debug digests for Chinese articles: are scores fair compared with similar English articles, is all generated text in English, are summaries accurate?
+- [ ] Decide on the candidates above, starting with Leiphone Intelligent Driving (transport) and ITHome with the keyword filter.
+- [ ] Decide whether China should be named in the transport rubric as a particular interest alongside Singapore.
+- [ ] Known limitation: the same story in English and Chinese sources is not deduplicated (different URLs and titles); needs embeddings (v0.7) or a model-based check.
+- [ ] Optional: show the English title in the debug digest too.
 
 ---
 
@@ -339,6 +382,8 @@ Identify emerging themes, run targeted follow-up searches, compare sources, trac
 - **The reference model is not deterministic.** OpenAI changed 1 in 8 re-scored articles by a point on identical text, so benchmarks need a tolerance and hand labels near the threshold.
 - **A podcast's published outline is a good scaffold for splitting it.** Grouping the outline's talking points into stories, then cutting the transcript by its minute markers, is cheaper and more reliable than asking a model to split a whole transcript.
 - **Give a broad source its own digest section.** AI-only stories cannot reach the transport-weighted threshold, and boosting their score would push out the transport news; a separate capped section keeps both.
+- **Don't count words with `split()` for Chinese.** Without spaces, full articles look like one-word teasers and length caps stop working; count characters for CJK text.
+- **Test new feeds twice.** Several Chinese feeds failed on the first request (502, timeout, truncated response) and worked on the second; a single retry turns them from "broken" into usable.
 
 ---
 
@@ -354,6 +399,7 @@ AI Daily Brief stories ----------------/
 
 → filter_recent_articles()     last RECENT_HOURS; undated articles dropped
 → deduplicate_articles()       exact URL
+→ keyword_filter()             only for sources in FEED_KEYWORDS (none yet)
 → add_page_content()           webpage full text for PAGE_FETCH_SOURCES
 → score_articles()             llm.parse(): transport, AI, GIS (0–5) + reasons
                                total = (T + 1) × (A + G + 1) − 1
@@ -361,7 +407,7 @@ AI Daily Brief stories ----------------/
 → classify_articles()          qualified / ai headline / notable / below threshold / scoring failed
 → select_for_digest()          ITS: qualified then notable, up to TOP_RANKED
 → select_ai_headlines()        AI Daily Brief: highest AI score, up to AIDB_HEADLINES_MAX
-→ generate_digest()            ITS: LLM summary + "why it matters"; AI Daily Brief: stored story summary
+→ generate_digest()            ITS: LLM summary + "why it matters" (+ English title for non-English titles); AI Daily Brief: stored story summary
 → generate_debug_digest()      all scored articles, scores and reasons (no LLM)
 → save_digest(), save_to_pool() output/digest-*.md, output/debug-digest-*.md, output/scored-articles.jsonl
 → timing summary               (every LLM call also logged to output/llm-calls.csv)
@@ -370,7 +416,7 @@ AI Daily Brief stories ----------------/
 ### Configuration (`config.py`)
 
 ```python
-FEEDS = {**FEEDS_transport, **FEEDS_AI, **FEEDS_gis}
+FEEDS = {**FEEDS_transport, **FEEDS_AI, **FEEDS_gis}   # **FEEDS_AI_CN on hold
 RECENT_HOURS = 24
 MIN_TOTAL_SCORE = 11               # on the 0–65 scale
 NOTABLE_MIN_TRANSPORT_SCORE = 3
@@ -394,7 +440,11 @@ AIDB_HEADLINES_MIN_AI_SCORE = 3
 
 MAX_CONTENT_WORDS = 1500
 FULL_TEXT_MIN_WORDS = 150
-PAGE_FETCH_SOURCES = {"Google Research", "Google DeepMind", "Hugging Face Blog"}
+PAGE_FETCH_SOURCES = {"Electrek", "The Verge Transportation", "TechCrunch Transportation",
+                      "Google Research", "Google DeepMind", "Hugging Face Blog", "QbitAI"}
+FEED_KEYWORDS = {}                 # source -> keywords; ITHome example in config.py
+HTTP_TIMEOUT = 20                  # seconds; HTTP_TIMEOUT_OVERRIDES = {"Leiphone AI": 60}
+HTTP_RETRIES = 1
 ```
 
 ### Article model (`models.py`)
@@ -434,6 +484,8 @@ class Article:
 ### Commit history
 
 ```text
+e4475c5 Add TechCrunch, The Verge and Electrek transport feeds with page fetch
+eb2eaa3 Wrap up v0.3: AI Daily Brief stories, two-section digest, docs
 5b35662 Save scored articles to a candidate pool for the evaluation dataset
 6f6d822 Update validate_feeds.py
 e0fa29d Log LLM calls to CSV; bound scores 0-5 and survive failed calls (v0.3 steps 2-3)
@@ -453,11 +505,12 @@ b10c490 Reduce scoring.py __main__ to a single-article test
 
 ## Resume point
 
-v0.3 is wrapped up and all work up to 2026-11-03 is committed and pushed: the provider switch, call log, candidate pool, AI Daily Brief story splitting, the two-section digest, and the GPU crash investigation. Runs use OpenAI; `RECENT_HOURS = 24`.
+v0.3 is wrapped up on OpenAI. Chinese-language sources (section 2.8): the groundwork (Chinese text length, English output and title translation, HTTP retry, keyword filter) is in the pipeline; Leiphone AI and QbitAI are ready in `FEEDS_AI_CN` but on hold (commented out of `FEEDS`). Runs use OpenAI; `RECENT_HOURS = 24`.
 
 Next:
 
-1. Remaining v0.2 work (section 2.7): full text for the newer feeds, better dedupe, pytest tests, cleanup.
-2. Run daily, tune thresholds from the debug digests, and let the candidate pool grow.
-3. Fix the GPU, then the deferred v0.3 items (section 3.6): evaluation dataset, Ollama benchmark, Ollama exit criterion.
-4. v0.4: SQLite repository.
+1. When resuming Chinese sources: re-enable `FEEDS_AI_CN`, review the Chinese articles in the debug digests, then decide on the next Chinese feeds (section 2.8).
+2. Remaining v0.2 work (section 2.7): better dedupe, pytest tests, cleanup.
+3. Tune thresholds from the debug digests, and let the candidate pool grow.
+4. Fix the GPU, then the deferred v0.3 items (section 3.6): evaluation dataset, Ollama benchmark, Ollama exit criterion.
+5. v0.4: SQLite repository, once v0.2 is closed.

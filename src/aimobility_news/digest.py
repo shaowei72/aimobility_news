@@ -1,11 +1,12 @@
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import llm
 from .models import Article
 from .scoring import text_for_scoring
+from .textlen import text_length
 from .ranking import QUALIFIED, NOTABLE, AI_HEADLINE, BELOW_THRESHOLD, SCORING_FAILED
 
 
@@ -15,6 +16,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class DigestEntry(BaseModel):
+    title_en: str = Field(
+        description="The title translated into English if it is not in English; "
+                    "an empty string if it is already in English"
+    )
     summary: str
     why_it_matters: str
 
@@ -29,12 +34,17 @@ reader interested in AI, GIS/GeoAI, and land transport.
 
 For the article below:
 
-1. Write a concise 2-3 sentence summary.
-2. Write one short paragraph explaining why it matters to someone
+1. If the title is not in English, translate it into English (title_en);
+   otherwise leave title_en empty.
+2. Write a concise 2-3 sentence summary.
+3. Write one short paragraph explaining why it matters to someone
    interested in GeoAI and land transport.
 
 Do not exaggerate relevance. If the connection to AI, GIS, or transport
 is weak, say so clearly.
+
+The article may be in another language (e.g. Chinese). Always write the
+summary and the paragraph in English.
 
 Title:
 {article.title}
@@ -60,15 +70,22 @@ def append_article_entry(lines: list[str], number: int, article: Article):
     # A failed summary call keeps the article in the digest without a summary
     try:
         digest_entry = generate_article_digest(article)
+        title_en = digest_entry.title_en.strip()
         summary = digest_entry.summary
         why_it_matters = digest_entry.why_it_matters
     except Exception as e:
         print(f"WARNING: digest summary failed for {article.title!r}: {type(e).__name__}: {e}")
+        title_en = ""
         summary = "_Summary unavailable (LLM call failed)._"
         why_it_matters = "_Unavailable._"
 
+    # Title in its original language first, then the English translation
+    # underneath when there is one
     lines.append(f"### {number}. {article.title}")
     lines.append("")
+    if title_en and title_en != article.title:
+        lines.append(f"_{title_en}_")
+        lines.append("")
     lines.append(f"**Source:** {article.source}")
     lines.append(f"**Score:** {score_breakdown(article)}")
     lines.append("")
@@ -213,7 +230,7 @@ def generate_debug_digest(
 
     for i, article in enumerate(ranked_articles, start=1):
         text_label, text = text_for_scoring(article)
-        words = len(text.split()) if text else 0
+        words = text_length(text)
 
         lines.append(f"### {i}. {article.title}")
         lines.append("")

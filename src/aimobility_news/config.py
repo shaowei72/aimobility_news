@@ -26,15 +26,8 @@ FEEDS_transport = {
     "Tech Xplore Automotive": "https://techxplore.com/rss-feed/automotive-news/",
 
     # Railway technology and operations
-    "Railway-News": "https://railway-news.com/feed/",
-    "Railway Age": "https://www.railwayage.com/feed/",
-
-    # Additional transport feeds to test
-    # "Electrek": "https://electrek.co/feed/",
-    # "Transport Topics": "https://www.ttnews.com/rss.xml",
-
-    # RSS endpoint previously returning HTTP 403
-    # "ITS International": "https://www.itsinternational.com/feed/",
+    # "Railway-News": "https://railway-news.com/feed/",
+    # "Railway Age": "https://www.railwayage.com/feed/",
 }
 
 # ============================================================
@@ -76,8 +69,38 @@ FEEDS_gis = {
 }
 
 
+# ============================================================
+# CHINESE-LANGUAGE SOURCES (v0.2, section 2.8 of the checkpoint)
+# ============================================================
+# Scored on the same rubric; reasons, summaries and digest text are written
+# in English, and digest titles show the original title with an English
+# translation underneath. Text length is measured with textlen.py, which
+# counts Chinese characters (1.5 characters = 1 word).
+
+FEEDS_AI_CN = {
+    # Leiphone: official category RSS, full text in the feed; the server is
+    # slow and the feed is large (1-3.5 MB), see HTTP_TIMEOUT_OVERRIDES
+    "Leiphone AI": "https://www.leiphone.com/feed/categoryRss/name/ai",
+
+    # QbitAI: the feed has only the title; full text from the page
+    # (PAGE_FETCH_SOURCES)
+    "QbitAI": "https://www.qbitai.com/feed",
+}
+
+# Tested 2026-11-03, not added (see checkpoint section 2.8):
+# "Leiphone Intelligent Driving": "https://www.leiphone.com/feed/categoryRss/name/transportation",  # works on retry; ~2 articles / 72 h
+# "Leiphone AI Research": "https://www.leiphone.com/feed/categoryRss/name/academic",                # works on retry; newest 89 h old
+# "ITHome": "https://www.ithome.com/rss/",            # ~350 articles / day, mostly consumer tech; needs FEED_KEYWORDS
+# "Leiphone Smart Transportation": ".../categoryRss/name/smarttransportation",  # newest entry ~3.6 years old
+# "36Kr Articles": "https://36kr.com/feed-article",   # serves an HTML page, not RSS
+# "Tropical Geography Remote Sensing GIS": "https://www.rddl.com.cn/CN/rss_lm_2321_1001-5221.xml",  # connection timeout
+# "Tropical Geography AI and Geography": "https://www.rddl.com.cn/CN/rss_zt_79_1001-5221.xml",      # HTML error page
+# "Acta Geographica GIS": "https://www.geog.com.cn/CN/rss_lm_800_0375-5444.xml",                    # connection timeout
+
+
 # Sources whose feeds carry little or no article text. For recent articles
-# from these sources, the article webpage is fetched to get the full text.
+# from these sources, the article webpage is fetched and the longer of the
+# feed text and the page text is kept.
 PAGE_FETCH_SOURCES = {
     "Electrek",
     "The Verge Transportation",
@@ -85,7 +108,24 @@ PAGE_FETCH_SOURCES = {
     "Google Research",
     "Google DeepMind",
     "Hugging Face Blog",
+    "QbitAI",
 }
+
+# Keyword pre-filter for high-volume general feeds: an article from a source
+# listed here is scored only if its title or text contains one of the
+# keywords (case-insensitive). Sources not listed are not filtered.
+# Example, for when ITHome is added:
+# "ITHome": ["自动驾驶", "智驾", "汽车", "交通", "地铁", "铁路", "公交", "出行",
+#            "Robotaxi", "无人驾驶", "地图", "导航", "北斗", "遥感", "测绘", "地理"],
+FEED_KEYWORDS: dict[str, list[str]] = {}
+
+# HTTP fetches of feeds and article pages (feeds.http_get): seconds per
+# request, and retries on timeouts, connection errors and 5xx responses
+HTTP_TIMEOUT = 20
+HTTP_TIMEOUT_OVERRIDES = {
+    "Leiphone AI": 60,
+}
+HTTP_RETRIES = 1
 
 
 
@@ -97,9 +137,12 @@ FEEDS = {
     **FEEDS_transport,
     **FEEDS_AI,
     **FEEDS_gis,
+    # **FEEDS_AI_CN,               # on hold (checkpoint section 2.8)
 }
 
 RECENT_HOURS = 24
+
+
 # total = (transport + 1) x (ai + gis + 1) - 1, range 0-65 (see scoring.py).
 # 11 = some transport link plus AI/GIS, e.g. T2 + A3, T3 + A2; nothing without
 # transport passes (max 10). 15 = T3 + A3, roughly the old 9 on AI x transport.

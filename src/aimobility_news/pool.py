@@ -14,6 +14,7 @@ from . import llm
 from .config import SCORED_POOL, MIN_TOTAL_SCORE, MAX_CONTENT_WORDS
 from .models import Article
 from .scoring import text_for_scoring
+from .textlen import text_length
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -48,7 +49,7 @@ def pool_record(article: Article, run_info: dict) -> dict:
         # without refetching
         "text_label": text_label,
         "text": text,
-        "text_words": len(text.split()) if text else 0,
+        "text_words": text_length(text),
         "has_full_text": bool(article.content),
         "scored_by": article.scored_by,
         "scoring_error": article.scoring_error,
