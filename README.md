@@ -6,6 +6,62 @@ Daily AI-powered news digest on AI and GIS applied to land transport
 (Intelligent Transportation Systems), with a separate section of the day's
 general AI news from the AI Daily Brief podcast.
 
+## Vision and Differentiation
+
+AIMobility News aims to become a concise, high-quality daily intelligence briefing connecting developments in artificial intelligence, intelligent transportation and geospatial technology.
+
+The goal is not simply to aggregate and summarise news. It is to identify consequential developments, explain why they matter, and make important information accessible to readers who might otherwise miss it.
+
+### What makes AIMobility News distinctive
+
+**1. Quality and uniqueness of information sources**
+
+The primary source of differentiation is the quality, breadth and uniqueness of the underlying information feeds, rather than the LLM technology used to process them.
+
+The system combines three complementary information streams:
+
+- **Global AI intelligence:** AI research, foundation models, agentic AI, robotics, enterprise applications, safety and governance.
+- **China technology intelligence:** Developments in Chinese AI, intelligent connected vehicles, autonomous driving, robotics, EV technology and industrial deployments, drawing on original Chinese-language sources.
+- **Transport and geospatial intelligence:** Intelligent transport systems, mobility operations, GIS, GeoAI, location intelligence and digital twins, with particular interest in Singapore and Asia.
+
+A key objective is to surface important developments across languages and markets, particularly Chinese technology innovations that may not yet be widely covered in English-language media.
+
+**2. Editorial relevance rather than information volume**
+
+The product prioritises consequential and substantive developments over the number of articles published.
+
+Articles are evaluated for their relevance and significance to Transport, AI and GIS. The objective is to identify information worth reading, rather than filling a predetermined number of daily news slots.
+
+Particular value comes from recognising connections between domains, such as how advances in AI, robotics or geospatial technology may affect future transport systems.
+
+**3. Timeliness and source credibility**
+
+The briefing should surface developments promptly while maintaining confidence in their accuracy.
+
+Source quality, publication dates, original reporting and traceability are important. Company announcements, independent reporting, technical research and commentary should be distinguishable.
+
+The system should avoid duplicating stories reported by multiple sources or repeating news without significant new developments.
+
+**4. Accessible, concise and actionable**
+
+AIMobility News converts information from news articles, research publications and podcasts into concise written briefings accessible through web and messaging channels such as WhatsApp.
+
+The emphasis is on making news easy to consume without sacrificing substance.
+
+Selected stories should explain:
+
+- **What happened:** The key facts and development.
+- **Why it matters:** Its technological, industry or operational significance.
+- **What to watch:** Implications, unanswered questions or developments worth monitoring.
+
+### Long-term ambition
+
+Evolve from an automated news digest into a searchable, multilingual intelligence and research assistant that can connect developments across sources, identify emerging trends, track technological progress and support deeper investigation.
+
+The guiding principle is:
+
+**Better sources → Better selection → Better insight → More valuable intelligence.**
+
 ## What it does
 
 - Pulls articles from configured RSS feeds, the Esri ArcGIS Blog (via OpenAI

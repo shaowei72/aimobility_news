@@ -1,6 +1,6 @@
 # AI Mobility News App — Checkpoint
 
-_Last updated: 2026-11-03 — v0.4 (SQLite repository) and v0.5 (WhatsApp-ready digest) complete (sections 4 and 5). Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
+_Last updated: 2026-11-03 — product strategy and priorities added (November 2026); v0.4 (SQLite repository) and v0.5 (WhatsApp-ready digest) complete (sections 4 and 5). Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
 
 ## Project
 
@@ -15,12 +15,37 @@ The digest is a "Daily Briefing" with two sections: "Intelligent Transportation 
 
 ---
 
+## Product Strategy and Development Priorities — November 2026
+
+Three decisions guide development from here (see also "Vision and Differentiation" in the README):
+
+1. **Source quality is a strategic priority, not just an ingestion task.** The quality, breadth and uniqueness of the feeds are the main differentiator. The Chinese-language feeds get renewed attention: the groundwork is done and initial testing showed about 3 Leiphone AI and 9 QbitAI articles a day (section 2.8), so validating them moves from "on hold" to an active priority.
+
+2. **Measure information quality, not just technical pipeline success.** Track, per run and over time:
+
+   | Metric | Meaning |
+   |---|---|
+   | Fresh articles discovered | New articles within the time window, per source |
+   | Unique qualified stories | Distinct stories that qualify, after deduplication |
+   | Source contribution | Qualified and published items per source |
+   | Full-text extraction success | Share of articles scored on full text rather than a summary, per source |
+   | Publication-to-delivery latency | Time from an article's publication to the digest that carries it |
+
+   Most of these can be computed from the v0.4 database (`articles.first_seen_run`, `scores.text_label`, `digest_items`, `runs.started_at`).
+
+3. **Let the product strategy shape later releases.**
+   - **v0.6 (web interface):** focus on a good reading experience.
+   - **v0.7 (embeddings, semantic search):** connect related stories, including across languages.
+   - **v0.8 (agentic research):** evolve into deeper research and intelligence generation.
+
+---
+
 ## Roadmap (revised 2026-11-03)
 
 | Version | Focus | Status |
 |---|---|---|
 | **v0.1** | End-to-end MVP news pipeline | ✅ Complete |
-| **v0.2** | Source coverage (incl. Chinese-language sources), full-text extraction and relevance scoring | 🚧 In progress — Chinese sources: groundwork done, feeds on hold (section 2.8); to close before v0.4 |
+| **v0.2** | Source coverage (incl. Chinese-language sources), full-text extraction and relevance scoring | 🚧 In progress — validating the Chinese sources is the active priority (section 2.8); dedupe, tests and cleanup remain (section 2.7) |
 | **v0.3** | Local LLM integration using Ollama | ✅ Wrapped up (2026-11-03); Ollama benchmark and evaluation dataset deferred (section 3.6) |
 | **v0.4** | SQLite news repository | ✅ Complete (2026-11-03, section 4) |
 | **v0.5** | WhatsApp-ready digest | ✅ Complete (2026-11-03, section 5) |
@@ -43,11 +68,12 @@ Revision 2026-11-03: Chinese-language sources are part of v0.2 (source coverage)
 
 ### Immediate priorities
 
-1. Choose the next step: the remaining v0.2 work (section 2.7) or v0.6, the searchable web interface (section 6).
-2. Finish the remaining v0.2 work (section 2.7): dedupe, tests, cleanup.
-3. Stabilise the transport × AI × GIS scoring and daily digest quality; the database collects every scored article from daily runs.
-4. Fix the GPU crashes under Ollama (`docs/crash-investigation-2026-11-03.md`), then return to the deferred v0.3 items (section 3.6).
-5. Chinese-language sources are on hold (section 2.8): the groundwork is in place; re-enable `FEEDS_AI_CN` in `config.py` when ready.
+1. Validate the Chinese-language sources (section 2.8, Product Strategy decision 1): re-enable `FEEDS_AI_CN`, run daily and review the results.
+2. Add the information-quality metrics (Product Strategy decision 2).
+3. Finish the remaining v0.2 work (section 2.7): dedupe, tests, cleanup.
+4. Stabilise the transport × AI × GIS scoring and daily digest quality; the database collects every scored article from daily runs.
+5. Fix the GPU crashes under Ollama (`docs/crash-investigation-2026-11-03.md`), then return to the deferred v0.3 items (section 3.6).
+6. Then v0.6, the searchable web interface, with the focus on reading experience (section 6).
 
 ---
 
@@ -210,9 +236,9 @@ The transport and AI feeds added since then have not been checked yet.
 - [ ] Remove `playwright` from `pyproject.toml`; declare `pydantic`
 - [ ] Regenerate `docs/sample-digest.md` (current sample is from v0.1)
 
-### 2.8 Chinese-language sources (started 2026-11-03; on hold)
+### 2.8 Chinese-language sources (started 2026-11-03; active priority again from November 2026)
 
-**Status:** on hold since 2026-11-03. The groundwork below is in the pipeline and applies to every source; Leiphone AI and QbitAI are defined in `FEEDS_AI_CN` but `**FEEDS_AI_CN` is commented out of `FEEDS`, so no Chinese feed runs. To resume: uncomment it, then work through **Next** below. `uv run python -m aimobility_news.feeds` runs `inspect_extraction()` on the two feeds (on hold or not) to check their text without LLM calls.
+**Status:** on hold from 2026-11-03; made an active priority again by the November 2026 product strategy (decision 1). The feeds are still switched off until re-enabled. The groundwork below is in the pipeline and applies to every source; Leiphone AI and QbitAI are defined in `FEEDS_AI_CN` but `**FEEDS_AI_CN` is commented out of `FEEDS`, so no Chinese feed runs. To resume: uncomment it, then work through **Next** below. `uv run python -m aimobility_news.feeds` runs `inspect_extraction()` on the two feeds (on hold or not) to check their text without LLM calls.
 
 **Objective:** cover Chinese AI and transport developments alongside the English sources, with the digest still readable in English.
 
@@ -227,8 +253,8 @@ The transport and AI feeds added since then have not been checked yet.
 
 | Feed | Result | Status |
 |---|---|---|
-| Leiphone AI | Full text in the feed (4,500–6,000 characters); ~3 articles / day | Ready, on hold |
-| QbitAI | Feed has only the title; pages extract (1,700–7,200 characters); ~9 articles / day | Ready (with page fetch), on hold |
+| Leiphone AI | Full text in the feed (4,500–6,000 characters); ~3 articles / day | Ready, to validate |
+| QbitAI | Feed has only the title; pages extract (1,700–7,200 characters); ~9 articles / day | Ready (with page fetch), to validate |
 | Leiphone Intelligent Driving | Works on retry (502 first); full text; ~2 articles / 72 h | Candidate |
 | Leiphone AI Research | Works on retry (timeout first); newest article 89 h old | Candidate (rarely in a 24 h window) |
 | ITHome | Full text in the feed; ~350 articles / day, mostly consumer tech | Candidate, only with `FEED_KEYWORDS` |
@@ -603,12 +629,13 @@ b10c490 Reduce scoring.py __main__ to a single-article test
 
 ## Resume point
 
-v0.4 is complete (section 4): the pipeline stores every run in `output/db/news.db` (articles, scores, published summaries, digest status), reuses scores for identical prompts, `reader.py` reads past digests back by day, and the AI Daily Brief is backfilled from 2026-09-01. v0.5 is complete (section 5): each run also writes `output/whatsapp-YYYY-MM-DD.txt` with one-line summaries and copies it to the clipboard for pasting into WhatsApp. v0.3 is wrapped up on OpenAI; Chinese-language sources are ready but on hold (section 2.8). Runs use OpenAI; `RECENT_HOURS = 24`.
+v0.4 is complete (section 4): the pipeline stores every run in `output/db/news.db` (articles, scores, published summaries, digest status), reuses scores for identical prompts, `reader.py` reads past digests back by day, and the AI Daily Brief is backfilled from 2026-09-01. v0.5 is complete (section 5): each run also writes `output/whatsapp-YYYY-MM-DD.txt` with one-line summaries and copies it to the clipboard for pasting into WhatsApp. v0.3 is wrapped up on OpenAI. The November 2026 product strategy makes source quality the priority: Chinese-language sources are ready (section 2.8) and validating them is next. Runs use OpenAI; `RECENT_HOURS = 24`.
 
 Next:
 
-1. Choose the next step: the remaining v0.2 work (item 2) or v0.6, the searchable web interface (section 6).
-2. Remaining v0.2 work (section 2.7): better dedupe, pytest tests for the pipeline functions (pytest is set up), cleanup.
-3. Tune thresholds from the debug digests.
-4. Fix the GPU, then the deferred v0.3 items (section 3.6): evaluation dataset, Ollama benchmark, Ollama exit criterion.
-5. When resuming Chinese sources: re-enable `FEEDS_AI_CN`, review the Chinese articles in the debug digests, then decide on the next Chinese feeds (section 2.8).
+1. Validate the Chinese sources: re-enable `FEEDS_AI_CN`, review the Chinese articles in the debug digests over several days, then decide on the next Chinese feeds (section 2.8).
+2. Information-quality metrics (Product Strategy decision 2).
+3. Remaining v0.2 work (section 2.7): better dedupe, pytest tests for the pipeline functions (pytest is set up), cleanup.
+4. Tune thresholds from the debug digests.
+5. Fix the GPU, then the deferred v0.3 items (section 3.6): evaluation dataset, Ollama benchmark, Ollama exit criterion.
+6. v0.6: searchable web interface, focused on reading experience (section 6).
