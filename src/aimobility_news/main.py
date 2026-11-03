@@ -10,12 +10,17 @@ from .feeds import (
 )
 from . import llm
 from .scoring import score_articles
-from .ranking import rank_articles, classify_articles, select_for_digest
+from .ranking import (
+    rank_articles,
+    classify_articles,
+    select_for_digest,
+    select_ai_headlines,
+)
 from .digest import generate_digest, generate_debug_digest, save_digest
 from .pool import save_to_pool
 from .esri_search import fetch_esri_articles
-from .aidailybrief import fetch_aidailybrief_articles
-from .config import TOP_RANKED, MIN_TOTAL_SCORE
+from .aidailybrief import fetch_aidailybrief_stories
+from .config import TOP_RANKED, MIN_TOTAL_SCORE, AIDB_HEADLINES_MAX
 
 
 timings = {}
@@ -61,11 +66,17 @@ def main(provider: str | None = None):
             print(f"WARNING: Esri search skipped: {e}")
             esri_articles = []
     with timed("Fetch AI Daily Brief"):
-        aidailybrief_articles = fetch_aidailybrief_articles()
+        # Recent episodes split into stories (LLM, task "transcript"; cached
+        # per episode). A failure skips the source instead of aborting the run.
+        try:
+            aidailybrief_articles = fetch_aidailybrief_stories()
+        except Exception as e:
+            print(f"WARNING: AI Daily Brief skipped: {type(e).__name__}: {e}")
+            aidailybrief_articles = []
 
     print(f"RSS articles: {len(rss_articles)}")
     print(f"Esri articles: {len(esri_articles)}")
-    print(f"AIDailybrief articles: {len(aidailybrief_articles)}")
+    print(f"AI Daily Brief stories: {len(aidailybrief_articles)}")
 
     # for article in esri_articles:
     #     print(
@@ -96,17 +107,19 @@ def main(provider: str | None = None):
     with timed("Rank + classify"):
         ranked_articles = classify_articles(rank_articles(scored_articles))
         published = select_for_digest(ranked_articles, limit=TOP_RANKED)
+        ai_headlines = select_ai_headlines(ranked_articles, limit=AIDB_HEADLINES_MAX)
 
     statuses = [article.digest_status for article in ranked_articles]
     print(
         f"Qualified: {statuses.count('qualified')}, "
         f"notable: {statuses.count('notable')}, "
+        f"AI headlines: {statuses.count('ai headline')}, "
         f"scoring failed: {statuses.count('scoring failed')}, "
-        f"published: {len(published)}"
+        f"published: {len(published)} + {len(ai_headlines)} AI headlines"
     )
 
     with timed(f"Generate digest ({len(published)} items)"):
-        digest = generate_digest(ranked_articles)
+        digest = generate_digest(ranked_articles, ai_headlines)
 
     with timed("Save"):
         file_path = save_digest(digest)

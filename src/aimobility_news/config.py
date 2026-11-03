@@ -121,9 +121,21 @@ LLM_PROVIDER = "openai"            # "openai" or "ollama"
 
 OPENAI_MODEL = "gpt-6.1-sol"       # also used by Esri search (web search)
 
+# Tasks: scoring, digest, transcript (AI Daily Brief story grouping and
+# summaries, aidailybrief_transcript.py) and judge (its optional comparison).
 LLM_MODELS = {
-    "openai": {"scoring": OPENAI_MODEL, "digest": OPENAI_MODEL},
-    "ollama": {"scoring": "qwen3.5:9b", "digest": "qwen3.5:9b"},
+    "openai": {
+        "scoring": OPENAI_MODEL,
+        "digest": OPENAI_MODEL,
+        "transcript": OPENAI_MODEL,
+        "judge": OPENAI_MODEL,
+    },
+    "ollama": {
+        "scoring": "qwen3.5:9b",
+        "digest": "qwen3.5:9b",
+        "transcript": "qwen3.5:9b",
+        "judge": "qwen3.5:9b",
+    },
 }
 
 OLLAMA_HOST = "http://localhost:11434"
@@ -143,6 +155,25 @@ LLM_CALL_LOG = "output/llm-calls.csv"
 # object per line: the pool the evaluation dataset is picked from.
 # Relative to the project root; set to None to disable.
 SCORED_POOL = "output/scored-articles.jsonl"
+
+# AI Daily Brief stories (aidailybrief_transcript.py). Each episode's source
+# files and LLM outputs go to <AIDB_DIR>/<date>/ (relative to the project root).
+AIDB_DIR = "output/aidailybrief"
+# Transcript markers are whole minutes and a heading's minute is only roughly
+# where its story starts, so each story's excerpt is widened by this many
+# minutes before its first heading and after its last heading's minute.
+AIDB_BUFFER_BEFORE_MIN = 1
+AIDB_BUFFER_AFTER_MIN = 1
+
+# AI Daily Brief is the backbone AI source: each recent episode is split into
+# stories, which are scored like any article. A story that qualifies on the
+# total score goes in the main digest as usual. Otherwise, if its AI score
+# reaches AIDB_HEADLINES_MIN_AI_SCORE, it is an "AI headline": published in a
+# separate "AI Daily Brief" digest section, highest AI score first, up to
+# AIDB_HEADLINES_MAX, so it never takes one of the TOP_RANKED slots.
+AIDB_SOURCE = "AI Daily Brief"
+AIDB_HEADLINES_MAX = 4
+AIDB_HEADLINES_MIN_AI_SCORE = 3
 
 # Cap on full-text words sent to the LLM for scoring
 MAX_CONTENT_WORDS = 1500

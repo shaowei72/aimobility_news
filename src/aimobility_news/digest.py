@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from . import llm
 from .models import Article
 from .scoring import text_for_scoring
-from .ranking import QUALIFIED, NOTABLE, BELOW_THRESHOLD, SCORING_FAILED
+from .ranking import QUALIFIED, NOTABLE, AI_HEADLINE, BELOW_THRESHOLD, SCORING_FAILED
 
 
 # Project root (two levels above src/aimobility_news/), so digests always
@@ -82,9 +82,29 @@ def append_article_entry(lines: list[str], number: int, article: Article):
     lines.append("")
 
 
-def generate_digest(ranked_articles: list[Article]) -> str:
-    # Publishes articles marked published by select_for_digest():
-    # qualified first, then notable under "Also notable".
+def append_ai_headline(lines: list[str], number: int, article: Article):
+    # AI Daily Brief stories already have a summary from the story splitter,
+    # so no digest LLM call
+    lines.append(f"### {number}. {article.title}")
+    lines.append("")
+    lines.append(f"**AI score:** {article.ai_score}")
+    lines.append("")
+    lines.append(article.summary or "_Summary unavailable._")
+    lines.append("")
+    lines.append(f"[Listen / read]({article.url})")
+    lines.append("")
+
+
+def generate_digest(
+    ranked_articles: list[Article],
+    ai_headlines: list[Article] | None = None,
+) -> str:
+    # Two sections, each numbered from 1:
+    # - Intelligent Transportation System (ITS): articles marked published by
+    #   select_for_digest(), qualified first, then notable under "Also notable"
+    # - AI Daily Brief: the stories from select_ai_headlines()
+    # Both headings always appear, with a note when a section is empty.
+    ai_headlines = ai_headlines or []
     qualified = [
         article for article in ranked_articles
         if article.published and article.digest_status == QUALIFIED
@@ -98,24 +118,38 @@ def generate_digest(ranked_articles: list[Article]) -> str:
 
     today = datetime.now().strftime("%Y-%m-%d")
 
-    lines.append("# GIS × AI × Transport")
-    lines.append(f"## Daily Briefing — {today}")
+    lines.append(f"# Daily Briefing — {today}")
+    lines.append("")
+
+    lines.append("## Intelligent Transportation System (ITS)")
     lines.append("")
 
     if not qualified and not notable:
-        lines.append("No relevant articles today.")
+        lines.append("_No relevant ITS articles today._")
         lines.append("")
-        return "\n".join(lines)
 
     for i, article in enumerate(qualified, start=1):
         append_article_entry(lines, i, article)
 
     if notable:
-        lines.append("## Also notable (strong in one domain)")
+        lines.append("**Also notable** (strong in one domain)")
         lines.append("")
 
         for i, article in enumerate(notable, start=len(qualified) + 1):
             append_article_entry(lines, i, article)
+
+    lines.append("---")
+    lines.append("")
+
+    lines.append("## AI Daily Brief")
+    lines.append("")
+
+    if not ai_headlines:
+        lines.append("_No AI Daily Brief stories today._")
+        lines.append("")
+
+    for i, article in enumerate(ai_headlines, start=1):
+        append_ai_headline(lines, i, article)
 
     return "\n".join(lines)
 
@@ -145,12 +179,13 @@ def generate_debug_digest(
 
     today = datetime.now().strftime("%Y-%m-%d")
 
-    lines.append("# GIS × AI × Transport — Debug")
+    lines.append("# Daily Briefing — Debug")
     lines.append(f"## All scored articles — {today}")
     lines.append("")
     lines.append(
         f"{len(ranked_articles)} scored: {count(QUALIFIED)} qualified, "
-        f"{count(NOTABLE)} notable, {count(BELOW_THRESHOLD)} below threshold, "
+        f"{count(NOTABLE)} notable, {count(AI_HEADLINE)} AI headlines, "
+        f"{count(BELOW_THRESHOLD)} below threshold, "
         f"{count(SCORING_FAILED)} scoring failed; "
         f"{published} published. MIN_TOTAL_SCORE = {min_total_score}"
     )

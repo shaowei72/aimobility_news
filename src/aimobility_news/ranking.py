@@ -3,12 +3,15 @@ from .config import (
     NOTABLE_MIN_TRANSPORT_SCORE,
     NOTABLE_MIN_AI_SCORE,
     NOTABLE_MIN_GIS_SCORE,
+    AIDB_SOURCE,
+    AIDB_HEADLINES_MIN_AI_SCORE,
 )
 from .models import Article
 
 
 QUALIFIED = "qualified"
 NOTABLE = "notable"
+AI_HEADLINE = "ai headline"
 BELOW_THRESHOLD = "below threshold"
 SCORING_FAILED = "scoring failed"
 
@@ -23,6 +26,8 @@ def rank_articles(articles: list[Article]) -> list[Article]:
 
 def classify_article(article: Article) -> str:
     # qualified: total_score reaches MIN_TOTAL_SCORE
+    # ai headline: otherwise, an AI Daily Brief story whose AI score reaches
+    #            AIDB_HEADLINES_MIN_AI_SCORE (own digest section, own cap)
     # notable:   otherwise, any one domain reaches its NOTABLE_MIN_* score
     # below threshold: everything else
     # scoring failed: no scores (never published)
@@ -31,6 +36,12 @@ def classify_article(article: Article) -> str:
 
     if (article.total_score or 0) >= MIN_TOTAL_SCORE:
         return QUALIFIED
+
+    if (
+        article.source == AIDB_SOURCE
+        and (article.ai_score or 0) >= AIDB_HEADLINES_MIN_AI_SCORE
+    ):
+        return AI_HEADLINE
 
     if (
         (article.transport_score or 0) >= NOTABLE_MIN_TRANSPORT_SCORE
@@ -65,3 +76,22 @@ def select_for_digest(
         article.published = True
 
     return published
+
+
+def select_ai_headlines(
+    ranked_articles: list[Article],
+    limit: int,
+) -> list[Article]:
+    # AI headlines (AI Daily Brief stories that did not qualify), highest AI
+    # score first, then total, up to limit. Separate from select_for_digest()
+    # so they never take a main digest slot.
+    headlines = sorted(
+        (a for a in ranked_articles if a.digest_status == AI_HEADLINE),
+        key=lambda a: (a.ai_score or 0, a.total_score or 0),
+        reverse=True,
+    )[:limit]
+
+    for article in headlines:
+        article.published = True
+
+    return headlines

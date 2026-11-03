@@ -1,12 +1,65 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 from bs4 import BeautifulSoup
 
+from .config import AIDB_SOURCE, RECENT_HOURS
 from .models import Article
 
 
 ARCHIVE_URL = "https://aidailybrief.ai/archive"
+
+
+def fetch_aidailybrief_stories(hours: int = RECENT_HOURS) -> list[Article]:
+    """One Article per story in each recent episode.
+
+    Episodes are split by aidailybrief_transcript.build_stories() (LLM calls,
+    cached per episode and model, so reruns cost nothing). Each story is scored
+    on its summary and key points. If an episode cannot be split (e.g. its
+    transcript is not published yet), the whole edition is kept as one article
+    with the archive teaser, as before.
+    """
+    from .aidailybrief_transcript import build_stories
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    editions = [
+        e for e in fetch_aidailybrief_articles()
+        if e.published_at and e.published_at >= cutoff
+    ]
+
+    articles = []
+    for edition in editions:
+        date = edition.url.rsplit("/", 1)[-1]
+        try:
+            result = build_stories(date)
+        except Exception as e:
+            print(f"WARNING: AI Daily Brief {date} not split into stories, "
+                  f"using the whole edition: {type(e).__name__}: {e}")
+            articles.append(edition)
+            continue
+
+        for story in result["stories"]:
+            summary = story["summary"]
+            if summary:
+                title = summary["headline"]
+                text = summary["summary"]
+                content = text + "\n\nKey points:\n" + "\n".join(
+                    f"- {p}" for p in summary["key_points"]
+                )
+            else:
+                # Summary call failed: score on the raw transcript excerpt
+                title, text, content = story["title"], None, story["excerpt"]
+
+            articles.append(Article(
+                title=title,
+                url=story["url"],
+                source=AIDB_SOURCE,
+                published_at=edition.published_at,
+                summary=text,
+                content=content,
+            ))
+
+    return articles
 
 
 def fetch_aidailybrief_articles() -> list[Article]:
@@ -76,7 +129,7 @@ def fetch_aidailybrief_articles() -> list[Article]:
         article = Article(
             title=title,
             url=full_url,
-            source="AI Daily Brief",
+            source=AIDB_SOURCE,
             published_at=published_at,
             summary=summary,
         )

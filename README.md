@@ -1,39 +1,48 @@
 # AI Mobility News
 
-MVP v0.2 (in progress)
+MVP v0.3
 
-Daily AI-powered news digest on AI and GIS applied to land transport, with
-emphasis on GeoAI and the use of GIS in transport.
+Daily AI-powered news digest on AI and GIS applied to land transport
+(Intelligent Transportation Systems), with a separate section of the day's
+general AI news from the AI Daily Brief podcast.
 
 ## What it does
 
-- Pulls articles from configured RSS feeds and two source adapters
-  (Esri ArcGIS Blog via OpenAI web search, AI Daily Brief archive scraper)
+- Pulls articles from configured RSS feeds, the Esri ArcGIS Blog (via OpenAI
+  web search) and the AI Daily Brief podcast
+- Splits each recent AI Daily Brief episode into individual news stories,
+  using the episode's published outline and transcript
 - Filters to recent articles and deduplicates by URL
 - Uses the full article text where available: from the feed itself, or by
   fetching the article webpage for selected sources
-- Scores each article with an OpenAI model on three independent 0–5
-  criteria (land transport, AI, GIS/GeoAI) and combines them so that
-  transport combined with AI and/or GIS ranks highest
-- Keeps articles at or above a minimum score, up to a configurable Top N
-- On thin days, fills remaining slots with articles strong in one domain
-  ("Also notable")
-- Generates a short summary and "why it matters" for each selected article
-- Saves the daily digest as Markdown, plus a debug digest listing every
-  scored article with its scores and reasons, and prints step timings
+- Scores each article with an LLM on three independent 0–5 criteria (land
+  transport, AI, GIS/GeoAI) and combines them so that transport combined
+  with AI and/or GIS ranks highest
+- Publishes a two-section **Daily Briefing**:
+  - **Intelligent Transportation System (ITS):** articles at or above a
+    minimum score, up to a configurable Top N, plus "Also notable" articles
+    strong in one domain on thin days; each with a short summary and "why it
+    matters"
+  - **AI Daily Brief:** the strongest AI stories from the podcast, ranked by
+    AI score, with their own cap so they never take an ITS slot
+- Saves the digest as Markdown, plus a debug digest listing every scored
+  article with its scores and reasons, and prints step timings
+- Runs on OpenAI or on a local model via Ollama (switchable per run), and
+  logs every LLM call to a CSV file
 
 ## Current pipeline
 
 ```text
-RSS feeds + Esri search + AI Daily Brief
+RSS feeds + Esri search + AI Daily Brief stories
 → recent articles
 → deduplicate
 → fetch article pages (PAGE_FETCH_SOURCES only)
-→ AI scoring (transport, AI, GIS → total_score)
-→ ranking + MIN_TOTAL_SCORE threshold
-→ Top N, plus "Also notable" if fewer than Top N qualify
-→ digest generation
-→ Markdown output (digest + debug digest)
+→ LLM scoring (transport, AI, GIS → total_score)
+→ classify: qualified / AI headline / notable / below threshold
+→ ITS section: qualified, then "Also notable", up to TOP_RANKED
+→ AI Daily Brief section: AI headlines, up to AIDB_HEADLINES_MAX
+→ summaries for the ITS articles
+→ Markdown output (digest + debug digest), scored-article pool, LLM call log
 ```
 
 ## Scoring
@@ -76,7 +85,27 @@ Transport combined with AI and/or GIS multiplies:
 | 0 / 5 / 0 | 5 |
 
 With `MIN_TOTAL_SCORE = 11`, an article needs a transport link plus AI or GIS
-content. The full rubric is in `src/aimobility_news/scoring.py`.
+content to qualify for the ITS section. An AI Daily Brief story that does not
+qualify becomes an "AI headline" if its AI score is at least
+`AIDB_HEADLINES_MIN_AI_SCORE` (3). The full rubric is in
+`src/aimobility_news/scoring.py`.
+
+## AI Daily Brief stories
+
+Each episode is published as a Markdown outline (one `###` heading per
+talking point, with its minute in the episode) and a transcript with minute
+markers. `aidailybrief_transcript.py`:
+
+1. parses the outline's Headlines and Main episode headings
+2. groups the headings into stories (one LLM call per section)
+3. cuts each story's part of the transcript, with a 1-minute buffer each side
+4. summarises each story: headline, 100–150-word summary, key points (one
+   LLM call per story)
+5. saves the result to `output/aidailybrief/<date>/stories__<model>.json`,
+   which later runs reuse
+
+The pipeline does this for every episode in the time window. Episodes are not
+published every day, so the AI Daily Brief section is sometimes empty.
 
 ## Setup
 
@@ -89,11 +118,20 @@ uv sync --system-certs
 `--system-certs` makes uv use the Windows certificate store, which is needed
 on networks with corporate TLS inspection. Elsewhere, plain `uv sync` works.
 
-Set your OpenAI API key (used for scoring, digest generation and Esri search):
+Set your OpenAI API key (used for scoring, summaries, AI Daily Brief stories
+and Esri search):
 
 ```powershell
 $env:OPENAI_API_KEY = "sk-..."
 ```
+
+Optional, for local models: install [Ollama](https://ollama.com/) and pull
+the model set in `LLM_MODELS`, e.g. `ollama pull qwen3.5:9b`.
+
+> **Note:** on the development PC, Ollama runs have crashed the machine
+> (GPU/driver/PCIe fault under load; see
+> [`docs/crash-investigation-2026-11-03.md`](docs/crash-investigation-2026-11-03.md)).
+> OpenAI is the default until that is fixed.
 
 ## Usage
 
@@ -105,10 +143,19 @@ path will fail):
 # output/debug-digest-YYYY-MM-DD.md
 uv run python -m aimobility_news.main
 
+# Same, with a local Ollama model instead of OpenAI
+uv run python -m aimobility_news.main --provider ollama
+
+# Split AI Daily Brief episodes into stories (by date, or the latest N);
+# --refresh reruns the LLM steps, --compare adds a single-call baseline
+# and a judge's comparison
+uv run python -m aimobility_news.aidailybrief_transcript 2026-10-29
+uv run python -m aimobility_news.aidailybrief_transcript --latest 3
+
 # Check that each configured RSS feed is reachable and parseable
 uv run python -m aimobility_news.validate_feeds
 
-# Score a single test article (one OpenAI call)
+# Score a single test article (one LLM call)
 uv run python -m aimobility_news.scoring
 
 # Test the source adapters
@@ -116,11 +163,18 @@ uv run python -m aimobility_news.aidailybrief
 uv run python -m aimobility_news.esri_search     # uses OpenAI web search
 ```
 
-Digests are written to `output/`, which is git-ignored. Same-day reruns are
-saved as `digest-YYYY-MM-DD(1).md`, `(2)`, and so on. The debug digest has
-a table of every scored article (status, total, transport, AI, GIS) followed
-by each article's reasons, for tuning the threshold and rubric. See
-[`docs/sample-digest.md`](docs/sample-digest.md) for an example (from v0.1).
+All output goes to `output/`, which is git-ignored:
+
+| File | Contents |
+|---|---|
+| `digest-YYYY-MM-DD.md` | The Daily Briefing. Same-day reruns are saved as `(1)`, `(2)`, … |
+| `debug-digest-YYYY-MM-DD.md` | Every scored article: status, total, transport, AI, GIS, the model that scored it, and the reasons; for tuning the threshold and rubric |
+| `scored-articles.jsonl` | Every scored article from every run, with the exact text the model saw; the candidate pool for a future evaluation dataset |
+| `llm-calls.csv` | One row per LLM call: provider, model, task, status, tokens, seconds |
+| `aidailybrief/<date>/` | Each episode's outline, transcript and story files |
+
+See [`docs/sample-digest.md`](docs/sample-digest.md) for an example (from
+v0.1; the format has changed since).
 
 ## Configuration
 
@@ -130,10 +184,17 @@ All settings are in `src/aimobility_news/config.py`:
 |---|---|
 | `FEEDS` | Active RSS feeds: `FEEDS_transport`, `FEEDS_AI` and `FEEDS_gis` merged |
 | `RECENT_HOURS` | Freshness window (24) |
-| `MIN_TOTAL_SCORE` | Minimum `total_score` for the digest (11) |
-| `TOP_RANKED` | Maximum number of digest items (8) |
-| `NOTABLE_MIN_TRANSPORT_SCORE`, `NOTABLE_MIN_AI_SCORE`, `NOTABLE_MIN_GIS_SCORE` | Single-domain minimums for "Also notable" (2, 3, 3) |
-| `SCORING_MODEL` | OpenAI model for scoring, digest and Esri search |
+| `MIN_TOTAL_SCORE` | Minimum `total_score` for the ITS section (11) |
+| `TOP_RANKED` | Maximum number of ITS items (8) |
+| `NOTABLE_MIN_TRANSPORT_SCORE`, `NOTABLE_MIN_AI_SCORE`, `NOTABLE_MIN_GIS_SCORE` | Single-domain minimums for "Also notable" (3, 3, 3) |
+| `AIDB_HEADLINES_MAX` | Maximum number of AI Daily Brief items (4) |
+| `AIDB_HEADLINES_MIN_AI_SCORE` | Minimum AI score for an AI Daily Brief item (3) |
+| `AIDB_BUFFER_BEFORE_MIN`, `AIDB_BUFFER_AFTER_MIN` | Minutes of transcript added around each story (1, 1) |
+| `LLM_PROVIDER` | `"openai"` (default) or `"ollama"`; `--provider` overrides it for a run |
+| `LLM_MODELS` | Model per provider and task (`scoring`, `digest`, `transcript`, `judge`) |
+| `OPENAI_MODEL` | OpenAI model, also used for Esri search |
+| `OLLAMA_*` | Ollama host, context window (`OLLAMA_NUM_CTX`, 16384), temperature, thinking, timeout, retries |
+| `LLM_CALL_LOG`, `SCORED_POOL` | Paths of the call log and the scored-article pool (`None` disables) |
 | `MAX_CONTENT_WORDS` | Cap on article words sent to the LLM |
 | `FULL_TEXT_MIN_WORDS` | Minimum length for text to count as the full article |
 | `PAGE_FETCH_SOURCES` | Sources whose article webpages are fetched for full text |
@@ -142,16 +203,22 @@ All settings are in `src/aimobility_news/config.py`:
 
 ```text
 src/aimobility_news/
-├── main.py             # pipeline entry point, step timing
-├── config.py           # feeds and settings
-├── models.py           # Article dataclass
-├── feeds.py            # RSS fetch, full-text extraction, page fetch, filter, dedupe
-├── aidailybrief.py     # AI Daily Brief archive scraper
-├── esri_search.py      # Esri ArcGIS Blog via OpenAI web search
-├── scoring.py          # OpenAI relevance scoring (transport, AI, GIS)
-├── ranking.py          # sort by total score, "Also notable" selection
-├── digest.py           # summaries, Markdown digest and debug digest -> output/
-└── validate_feeds.py   # feed health check
+├── main.py                       # pipeline entry point, step timing
+├── config.py                     # feeds and settings
+├── models.py                     # Article dataclass
+├── feeds.py                      # RSS fetch, full-text extraction, page fetch, filter, dedupe
+├── aidailybrief.py               # AI Daily Brief archive scraper; episodes -> story articles
+├── aidailybrief_transcript.py    # split an episode into stories (outline + transcript)
+├── esri_search.py                # Esri ArcGIS Blog via OpenAI web search
+├── llm.py                        # provider switch and LLM call log
+├── llm_openai.py                 # OpenAI structured output
+├── llm_ollama.py                 # Ollama structured output (native API)
+├── scoring.py                    # relevance scoring (transport, AI, GIS)
+├── ranking.py                    # sort, classify, select ITS and AI Daily Brief items
+├── digest.py                     # summaries, Markdown digest and debug digest -> output/
+├── pool.py                       # scored-article pool (JSON Lines)
+└── validate_feeds.py             # feed health check
 ```
 
-See `aimobility-news-checkpoint.md` for detailed progress notes and next steps.
+See `aimobility-news-checkpoint.md` for detailed progress notes, the roadmap
+and deferred work (local-model benchmark and evaluation dataset).
