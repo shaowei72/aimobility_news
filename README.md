@@ -68,7 +68,9 @@ The guiding principle is:
   web search) and the AI Daily Brief podcast
 - Splits each recent AI Daily Brief episode into individual news stories,
   using the episode's published outline and transcript
-- Filters to recent articles and deduplicates by URL
+- Filters to recent articles (per-source windows for feeds that lag) and
+  deduplicates by URL (ignoring tracking parameters) and by title; articles
+  already published in an earlier digest are not published again
 - Uses the full article text where available: from the feed itself, or by
   fetching the article webpage for selected sources
 - Scores each article with an LLM on three independent 0–5 criteria (land
@@ -98,8 +100,8 @@ The guiding principle is:
 
 ```text
 RSS feeds + Esri search + AI Daily Brief stories
-→ recent articles
-→ deduplicate
+→ recent articles (RECENT_HOURS, or RECENT_HOURS_OVERRIDES per source)
+→ deduplicate (URL and title), drop articles published in earlier digests
 → fetch article pages (PAGE_FETCH_SOURCES only)
 → reuse stored scores for identical prompts
 → LLM scoring (transport, AI, GIS → total_score)
@@ -258,6 +260,11 @@ uv run python -m aimobility_news.db --stats
 # Check that each configured RSS feed is reachable and parseable
 uv run python -m aimobility_news.validate_feeds
 
+# Inspect what the pipeline extracts and scores for chosen sources (no LLM
+# calls): edit the inspect_extraction(...) call at the bottom of feeds.py;
+# fetch_pages=True also tries page fetch for sources not in PAGE_FETCH_SOURCES
+uv run python -m aimobility_news.feeds
+
 # Score a single test article (one LLM call)
 uv run python -m aimobility_news.scoring
 
@@ -290,8 +297,10 @@ All settings are in `src/aimobility_news/config.py`:
 
 | Setting | Purpose |
 |---|---|
-| `FEEDS` | Active RSS feeds: `FEEDS_transport`, `FEEDS_AI` and `FEEDS_gis` merged |
+| `FEEDS` | Active RSS feeds: `FEEDS_transport`, `FEEDS_AI`, `FEEDS_gis` and `FEEDS_transport_CN` (Gasgoo) merged; `FEEDS_AI_CN` (QbitAI, Leiphone AI) is on hold |
 | `RECENT_HOURS` | Freshness window (24) |
+| `RECENT_HOURS_OVERRIDES` | Longer windows for feeds that lag (Gasgoo: 48) |
+| `FEED_TIMEZONES` | Timezone of feeds whose dates have none (Gasgoo: +8, Beijing) |
 | `MIN_TOTAL_SCORE` | Minimum `total_score` for the ITS section (11) |
 | `TOP_RANKED` | Maximum number of ITS items (8) |
 | `NOTABLE_MIN_TRANSPORT_SCORE`, `NOTABLE_MIN_AI_SCORE`, `NOTABLE_MIN_GIS_SCORE` | Single-domain minimums for "Also notable" (3, 3, 3) |
@@ -338,6 +347,7 @@ src/aimobility_news/
 tests/
 ├── conftest.py                   # temporary database, fake LLM, article helper
 ├── test_db.py                    # repository, score reuse, summaries, import, backfill resume
+├── test_feeds.py                 # feed dates and timezones, page decoding, dedupe, lookback windows
 └── test_whatsapp.py              # WhatsApp selection, one-liners, fallback, format, clipboard
 ```
 

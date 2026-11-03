@@ -1,6 +1,6 @@
 # AI Mobility News App — Checkpoint
 
-_Last updated: 2026-11-03 — product strategy and priorities added (November 2026); v0.4 (SQLite repository) and v0.5 (WhatsApp-ready digest) complete (sections 4 and 5). Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
+_Last updated: 2026-11-03 — Gasgoo feeds added and Chinese AI feeds examined (section 2.8); product strategy and priorities added (November 2026); v0.4 (SQLite repository) and v0.5 (WhatsApp-ready digest) complete (sections 4 and 5). Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
 
 ## Project
 
@@ -201,10 +201,15 @@ The transport and AI feeds added since then have not been checked yet.
 
 - One failing feed no longer aborts the run (per-feed `requests.RequestException` handling).
 - Feeds and article pages are fetched with `feeds.http_get()`: `HTTP_TIMEOUT` (20 s, per feed in `HTTP_TIMEOUT_OVERRIDES`), and `HTTP_RETRIES` (1) retry after 2 s on timeouts, connection errors, truncated responses and 5xx. 4xx responses are not retried.
-- `inspect_article_webpage()` fetches like the pipeline and prints the HTTP status or error on failure.
 - `validate_feeds.py` reports HTTP status, content type and parse errors.
+- **Page decoding** (2026-11-03): `fetch_page_text()` passes the raw bytes to trafilatura, which reads the page's own charset. `response.text` used requests' guess, ISO-8859-1 when the HTTP header names no charset, which garbled Gasgoo's Chinese pages and Google DeepMind's apostrophes ("DeepMindâs").
+- **Deduplication** (2026-11-03): `deduplicate_articles()` compares URLs without `utm_*` parameters (`#fragments` kept: AI Daily Brief stories differ only by fragment) and normalised titles (case, spaces, punctuation and invisible characters ignored; titles under 10 characters never matched).
+- **Per-source lookback** (`RECENT_HOURS_OVERRIDES`, Gasgoo 48 h) and **no republishing**: `main.py` drops articles already published in an earlier pipeline run (`db.published_urls()`, `feeds.drop_previously_published()`), before page fetch and scoring. Open choice: this also applies to same-day reruns, which therefore give a thinner digest; the alternative is to skip only articles published on an earlier day (recommended, a one-line change).
 - `main.py` times each step and prints a summary, slowest first.
-- `feeds.py` debugging helpers: `inspect_feed_structure()`, `inspect_article_webpage()`.
+- `feeds.py` inspection helpers (no LLM calls; they also see on-hold feeds in `FEEDS_AI_CN` and `FEEDS_transport_CN`, via `known_feeds()`):
+  - `inspect_extraction(sources, hours=None, limit=5, preview_chars=600, fetch_pages=False)`: runs the pipeline's text steps (fetch, per-source recency window, keyword filter, page fetch) and shows for each article where its text came from (feed or page), its length, what scoring receives after the cap, and the start and end of the text. `fetch_pages=True` also fetches pages for sources not in `PAGE_FETCH_SOURCES`, to judge whether adding them would help. Run with `uv run python -m aimobility_news.feeds` (edit the call at the bottom of `feeds.py`).
+  - `inspect_feed_structure(source)`: the raw RSS fields of a feed, to find where the article text is stored (e.g. Gasgoo's `content`).
+  - `inspect_article_webpage()` was removed on 2026-11-03: `inspect_extraction(..., fetch_pages=True)` covers it, with the timezone and per-source windows applied.
 
 ### 2.7 Remaining v0.2 work
 
@@ -221,7 +226,7 @@ The transport and AI feeds added since then have not been checked yet.
 - [ ] Build the evaluation dataset: deferred with the Ollama benchmark (section 3.6); the database (`scores`, with the exact text each model saw) keeps collecting candidates meanwhile
 
 **Reliability**
-- [ ] Deduplicate on normalised title and canonical URL (strip `utm_*`), not only exact URL
+- [x] Deduplicate on normalised title and canonical URL (strip `utm_*`), not only exact URL (2026-11-03)
 - [x] Wrap Esri and AI Daily Brief calls in `main.py` so an adapter failure does not abort the run
 - [ ] Warn when the AI Daily Brief archive returns no editions at all (distinct from none in the time window)
 - [ ] Esri search: restrict to `https://www.esri.com/arcgis-blog/` URLs; its model-written summary may inflate scores; it requests 7 days but most results are then filtered out
@@ -232,7 +237,7 @@ The transport and AI feeds added since then have not been checked yet.
 
 **Cleanup**
 - [ ] Remove scratch code: `openAI.py`, `substack.py`, `src/geoai_signal_feed.xml` (225 KB, tracked), commented-out blocks
-- [ ] Remove unused imports in `feeds.py` (`random`, `fetch_esri_articles`)
+- [x] Remove unused imports in `feeds.py` (`random`, `fetch_esri_articles`) and its commented-out `__main__` experiments (2026-11-03)
 - [ ] Remove `playwright` from `pyproject.toml`; declare `pydantic`
 - [ ] Regenerate `docs/sample-digest.md` (current sample is from v0.1)
 
@@ -254,7 +259,11 @@ The transport and AI feeds added since then have not been checked yet.
 | Feed | Result | Status |
 |---|---|---|
 | Leiphone AI | Full text in the feed (4,500–6,000 characters); ~3 articles / day | Ready, to validate |
-| QbitAI | Feed has only the title; pages extract (1,700–7,200 characters); ~9 articles / day | Ready (with page fetch), to validate |
+| QbitAI | Feed has only the title and only the newest 10 entries (~17 h on a busy day; `/feed?paged=2` gives the next 10); pages extract completely (880–4,300 word-eq) but end with 4 related-article lines; ~half are company-provided reprints | Ready (with page fetch), to validate; fixes pending (2.8.2) |
+| Gasgoo Intelligent Connected Vehicles | Full text in the feed's `content`; ~5 / weekday; autonomous driving, vehicle software | ✅ Added 2026-11-03 (`FEEDS_transport_CN`) |
+| Gasgoo Automotive Industry | Full text in the feed; ~5–15 / weekday; exports, policy, profitability; overlaps the other Gasgoo feeds | ✅ Added 2026-11-03 |
+| Gasgoo New Energy Vehicles | Full text in the feed; ~1–14 / day; batteries, charging | ✅ Added 2026-11-03, on trial |
+| Gasgoo New Technology | Full text in the feed; sparse (newest 4 days old) | Not added |
 | Leiphone Intelligent Driving | Works on retry (502 first); full text; ~2 articles / 72 h | Candidate |
 | Leiphone AI Research | Works on retry (timeout first); newest article 89 h old | Candidate (rarely in a 24 h window) |
 | ITHome | Full text in the feed; ~350 articles / day, mostly consumer tech | Candidate, only with `FEED_KEYWORDS` |
@@ -264,12 +273,31 @@ The transport and AI feeds added since then have not been checked yet.
 
 First check (2 articles, OpenAI): reasons, summary and "why it matters" came back in English, and titles were translated, e.g. "90 后北大副教授董豪：启元机器人，正在勇闯具身终局" → "Dong Hao, a Peking University Associate Professor Born in the 1990s: Qiyuan Robotics Pushes Toward the Embodied AI Endgame". Both scored T1 / A2 / G0 (interview and event coverage, not deployments).
 
+### 2.8.1 Gasgoo (盖世汽车), added 2026-11-03
+
+- **Completeness:** every entry carries the full article in the feed's `content` field (median ~450–800 word-eq). Compared with the pages, the feed text ends at the article's real last paragraph, while the page adds image credits, contact numbers and site links. So no page fetch.
+- **Dates are Beijing time without a timezone** (`2026-11-02 17:28:04`; the feed's own `lastBuildDate` matches the server clock at +8 h). `FEED_TIMEZONES` reads such dates as UTC+8 (`feeds.entry_published_at()`).
+- **The feeds leave out the current day.** The feed is generated on each request (`lastBuildDate` = request time), yet on 2026-11-03 at 18:30 Beijing it had none of the 41 articles dated that day on the website; its newest was ~25 h old. At an evening run, Gasgoo articles are ~20–44 h old, so `RECENT_HOURS_OVERRIDES` gives Gasgoo 48 h. To confirm: the feed should carry 2026-11-03's articles on 11-04; `articles.first_seen_at` against `published_at` will show the real lag over daily runs. Same-day coverage would need reading the website instead.
+- **Cross-feed duplicates:** 13 of 400 entries appear in two feeds under different URLs; `deduplicate_articles()` now also matches normalised titles.
+- No per-entry "added to feed" time: items have `pubDate` (published) and `upDate` (last edited).
+
+### 2.8.2 QbitAI and Leiphone AI: findings (2026-11-03), to continue
+
+- **QbitAI's feed holds only the newest 10 entries.** On 2026-11-03 it had 9 articles by mid-afternoon Beijing, so a busy weekday can exceed 10 between daily runs and the oldest would be missed. `/feed?paged=2` returns the next 10 (page 3 repeats page 2). Fix: fetch two pages for QbitAI.
+- **Completeness:** all 10 pages extract fully; bodies end naturally (closing sentence, reprint note or reference list). But every page ends with 4 related-article lines (`- <title><date>`), which should be stripped.
+- **Company-provided content:** 5 of 10 end with "本文由<company>提供，量子位获授权转载，观点归原作者所有" (provided by TeleAI, Ant/OceanBase, Xiaomi, Bilibili, PixVerse; reprinted with permission), i.e. press releases; the rest are QbitAI's own reporting ("<name>发自 凹非寺 量子位"). The marker is consistent, so these can be labelled company-provided (vision: distinguish announcements from independent reporting). Open: show the label only, or also tell the scorer.
+- **Leiphone AI:** full text in the feed; ~3 / day; mostly embodied AI and robotics.
+- **Topics:** general Chinese AI (agents, models, chips, robotics, awards); little transport. Open: where these go in the digest: (a) current rules (AI ≥ 3 makes them "Also notable" in the ITS section, crowding transport on thin days), (b) a separate "China Tech" section with its own cap, like the AI Daily Brief section (recommended), or (c) transport-only.
+
 **Next:**
+- [ ] QbitAI: strip the trailing related-article lines; fetch two feed pages; detect and label company-provided articles (decide: label only, or also in scoring).
+- [ ] Decide where Chinese AI articles go in the digest: (a), (b) or (c) above.
+- [ ] Gasgoo: on 2026-11-04 confirm the feed carries 2026-11-03's articles; then track the lag from `first_seen_at`.
 - [ ] Re-enable `FEEDS_AI_CN` in `FEEDS`.
 - [ ] Run daily for several days and review the debug digests for Chinese articles: are scores fair compared with similar English articles, is all generated text in English, are summaries accurate?
 - [ ] Decide on the candidates above, starting with Leiphone Intelligent Driving (transport) and ITHome with the keyword filter.
 - [ ] Decide whether China should be named in the transport rubric as a particular interest alongside Singapore.
-- [ ] Known limitation: the same story in English and Chinese sources is not deduplicated (different URLs and titles); needs embeddings (v0.7) or a model-based check.
+- [ ] Known limitation: the same story in English and Chinese sources is not deduplicated (different URLs and titles); needs embeddings (v0.7) or a model-based check. (The same title within or across Chinese feeds is now caught by title dedupe.)
 - [ ] Optional: show the English title in the debug digest too.
 
 ---
@@ -629,11 +657,11 @@ b10c490 Reduce scoring.py __main__ to a single-article test
 
 ## Resume point
 
-v0.4 is complete (section 4): the pipeline stores every run in `output/db/news.db` (articles, scores, published summaries, digest status), reuses scores for identical prompts, `reader.py` reads past digests back by day, and the AI Daily Brief is backfilled from 2026-09-01. v0.5 is complete (section 5): each run also writes `output/whatsapp-YYYY-MM-DD.txt` with one-line summaries and copies it to the clipboard for pasting into WhatsApp. v0.3 is wrapped up on OpenAI. The November 2026 product strategy makes source quality the priority: Chinese-language sources are ready (section 2.8) and validating them is next. Runs use OpenAI; `RECENT_HOURS = 24`.
+v0.4 is complete (section 4): the pipeline stores every run in `output/db/news.db` (articles, scores, published summaries, digest status), reuses scores for identical prompts, `reader.py` reads past digests back by day, and the AI Daily Brief is backfilled from 2026-09-01. v0.5 is complete (section 5): each run also writes `output/whatsapp-YYYY-MM-DD.txt` with one-line summaries and copies it to the clipboard for pasting into WhatsApp. v0.3 is wrapped up on OpenAI. The November 2026 product strategy makes source quality the priority. On 2026-11-03 three Gasgoo feeds (Chinese automotive technology) were added with Beijing-time dates and a 48-hour window, deduplication now also matches titles, and articles published in an earlier digest are not republished (sections 2.8.1 and 2.6). The Chinese AI feeds (QbitAI, Leiphone AI) were examined but are still off (section 2.8.2). Runs use OpenAI; `RECENT_HOURS = 24` (Gasgoo 48).
 
 Next:
 
-1. Validate the Chinese sources: re-enable `FEEDS_AI_CN`, review the Chinese articles in the debug digests over several days, then decide on the next Chinese feeds (section 2.8).
+1. Continue with the Chinese AI feeds (section 2.8.2): QbitAI fixes (related-article lines, two feed pages, company-provided label), decide their digest placement, then re-enable `FEEDS_AI_CN` and review several days of debug digests. Also confirm Gasgoo's feed lag on 2026-11-04, and settle same-day reruns (section 2.6).
 2. Information-quality metrics (Product Strategy decision 2).
 3. Remaining v0.2 work (section 2.7): better dedupe, pytest tests for the pipeline functions (pytest is set up), cleanup.
 4. Tune thresholds from the debug digests.
