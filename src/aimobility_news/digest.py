@@ -24,11 +24,12 @@ class DigestEntry(BaseModel):
     why_it_matters: str
 
 
-def generate_article_digest(article: Article) -> DigestEntry:
-    # Same capped full text (or summary) that was used for scoring
+def digest_prompt(article: Article) -> str:
+    # Same capped full text (or summary) that was used for scoring.
+    # Its hash is stored with each summary (db.py).
     text_label, text = text_for_scoring(article)
 
-    prompt = f"""
+    return f"""
 You are preparing a concise daily briefing for a technically informed
 reader interested in AI, GIS/GeoAI, and land transport.
 
@@ -56,7 +57,31 @@ Source:
 {text}
 """
 
-    return llm.parse(prompt, DigestEntry, task="digest", label=article.title)
+
+def generate_article_digest(article: Article) -> DigestEntry:
+    return llm.parse(digest_prompt(article), DigestEntry, task="digest", label=article.title)
+
+
+def summarise_articles(articles: list[Article]) -> list[Article]:
+    # One LLM call per article. A failed call is recorded on the article,
+    # which stays in the digest without a summary.
+    for article in articles:
+        # Reuse of stored summaries is disabled (only re-runs on the same day
+        # would benefit). To enable it, uncomment db.reuse_summaries() and its
+        # call in main.py, and skip articles it has already filled:
+        # if article.digest_summary is not None:
+        #     continue
+        article.summarised_by = llm.describe("digest")
+        try:
+            entry = generate_article_digest(article)
+        except Exception as e:
+            article.summary_error = f"{type(e).__name__}: {e}"
+            print(f"WARNING: digest summary failed for {article.title!r}: {article.summary_error}")
+            continue
+        article.title_en = entry.title_en.strip() or None
+        article.digest_summary = entry.summary
+        article.why_it_matters = entry.why_it_matters
+    return articles
 
 
 def score_breakdown(article: Article) -> str:
@@ -67,17 +92,16 @@ def score_breakdown(article: Article) -> str:
 
 
 def append_article_entry(lines: list[str], number: int, article: Article):
-    # A failed summary call keeps the article in the digest without a summary
-    try:
-        digest_entry = generate_article_digest(article)
-        title_en = digest_entry.title_en.strip()
-        summary = digest_entry.summary
-        why_it_matters = digest_entry.why_it_matters
-    except Exception as e:
-        print(f"WARNING: digest summary failed for {article.title!r}: {type(e).__name__}: {e}")
+    # Rendering only; the summary comes from summarise_articles() or the
+    # database. A failed summary call keeps the article without a summary.
+    if article.digest_summary is None:
         title_en = ""
         summary = "_Summary unavailable (LLM call failed)._"
         why_it_matters = "_Unavailable._"
+    else:
+        title_en = article.title_en or ""
+        summary = article.digest_summary
+        why_it_matters = article.why_it_matters
 
     # Title in its original language first, then the English translation
     # underneath when there is one
@@ -130,6 +154,8 @@ def generate_digest(
         article for article in ranked_articles
         if article.published and article.digest_status == NOTABLE
     ]
+
+    summarise_articles(qualified + notable)
 
     lines = []
 

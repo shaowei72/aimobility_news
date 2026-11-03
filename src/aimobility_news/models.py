@@ -25,3 +25,11 @@ class Article:
     # Set by classify_articles() / select_for_digest() in ranking.py
     digest_status: str | None = None   # "qualified", "notable" or "below threshold"
     published: bool = False            # included in the published digest
+
+    # Set by summarise_articles() in digest.py for published ITS articles
+    title_en: str | None = None        # English title when the original is not in English
+    digest_summary: str | None = None  # 2-3 sentence digest summary (summary above is the feed's)
+    why_it_matters: str | None = None
+    summarised_by: str | None = None   # provider:model
+    summary_error: str | None = None   # set when the digest call failed; fields above stay None
+    summary_id: int | None = None      # summaries.id in the database (db.py), set when stored or reused

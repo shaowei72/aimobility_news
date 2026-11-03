@@ -131,6 +131,9 @@ def main(provider: str | None = None):
     )
 
     with timed(f"Generate digest ({len(published)} items)"):
+        # Reuse of stored summaries is disabled (see db.reuse_summaries()):
+        # with db.session() as conn:
+        #     db.reuse_summaries(conn, published)
         digest = generate_digest(ranked_articles, ai_headlines)
 
     with timed("Save"):

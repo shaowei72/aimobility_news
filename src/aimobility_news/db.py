@@ -8,7 +8,11 @@ One database file (DB_FILE, default output/db/news.db) holds:
     scores          every scoring of an article: who scored it, a hash of the
                     exact prompt, the text the model saw, scores and reasons.
                     Several rows per article (re-scores, other models).
-    digest_items    per run and article: digest status, published, section
+    summaries       every digest summary of a published ITS article: model,
+                    a hash of the exact prompt, title_en, summary, why it
+                    matters, error
+    digest_items    per run and article: digest status, published, section,
+                    and the score and summary used
     aidb_episodes   AI Daily Brief episodes (date, title, lead)
     aidb_story_sets one story split of one episode by one model: the full
                     build_stories() result as JSON (headings, groupings,
@@ -17,7 +21,8 @@ One database file (DB_FILE, default output/db/news.db) holds:
 Scores are reused: if the same model has already scored an identical prompt
 (same rubric, title and text; see scoring.scoring_prompt()), the stored score
 is applied instead of calling the LLM again. This makes reruns and the
-AI Daily Brief backfill cheap and resumable.
+AI Daily Brief backfill cheap and resumable. Summaries are stored but not
+reused (only same-day re-runs would benefit); see reuse_summaries().
 
 Command line:
     uv run python -m aimobility_news.db --import-legacy   # JSONL pool + story JSON files
@@ -91,10 +96,26 @@ CREATE TABLE IF NOT EXISTS scores (
 CREATE INDEX IF NOT EXISTS scores_article ON scores(article_id);
 CREATE INDEX IF NOT EXISTS scores_reuse ON scores(scored_by, prompt_hash);
 
+CREATE TABLE IF NOT EXISTS summaries (
+    id             INTEGER PRIMARY KEY,
+    article_id     INTEGER NOT NULL REFERENCES articles(id),
+    run_id         TEXT,
+    summarised_at  TEXT NOT NULL,
+    summarised_by  TEXT NOT NULL,      -- provider:model
+    code_version   TEXT,
+    prompt_hash    TEXT,               -- sha256 of the full digest prompt
+    title_en       TEXT,
+    summary        TEXT,
+    why_it_matters TEXT,
+    error          TEXT                -- set when the digest call failed
+);
+CREATE INDEX IF NOT EXISTS summaries_article ON summaries(article_id);
+
 CREATE TABLE IF NOT EXISTS digest_items (
     run_id        TEXT NOT NULL,
     article_id    INTEGER NOT NULL REFERENCES articles(id),
     score_id      INTEGER REFERENCES scores(id),
+    summary_id    INTEGER REFERENCES summaries(id),
     digest_status TEXT,                  -- qualified, ai headline, notable, below threshold, scoring failed
     published     INTEGER NOT NULL DEFAULT 0,
     section       TEXT,                  -- "its" or "ai daily brief" when published
@@ -131,7 +152,18 @@ def connect(path: Path = DB_PATH) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    migrate(conn)
     return conn
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    # Columns added after a table was first created; CREATE TABLE IF NOT
+    # EXISTS does not add them to an existing database
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(digest_items)")}
+    if "summary_id" not in columns:
+        conn.execute(
+            "ALTER TABLE digest_items ADD COLUMN summary_id INTEGER REFERENCES summaries(id)"
+        )
 
 
 @contextmanager
@@ -272,22 +304,64 @@ def insert_score(conn: sqlite3.Connection, article_id: int, article: Article, ru
     return cur.lastrowid
 
 
+def insert_summary(conn: sqlite3.Connection, article_id: int, article: Article, run_id: str | None) -> int:
+    from .digest import digest_prompt
+
+    cur = conn.execute(
+        """
+        INSERT INTO summaries (article_id, run_id, summarised_at, summarised_by, code_version,
+                               prompt_hash, title_en, summary, why_it_matters, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (article_id, run_id, now_utc(), article.summarised_by, code_version(),
+         prompt_hash(digest_prompt(article)), article.title_en, article.digest_summary,
+         article.why_it_matters, article.summary_error),
+    )
+    return cur.lastrowid
+
+
+# Disabled: only same-day re-runs would benefit. To enable, uncomment this,
+# its call in main.py and the skip in digest.summarise_articles().
+#
+# def reuse_summaries(conn: sqlite3.Connection, articles: list[Article]) -> None:
+#     """Fill the summary fields of articles whose identical digest prompt the
+#     current digest model has already summarised."""
+#     from .digest import digest_prompt
+#
+#     summarised_by = llm.describe("digest")
+#     for article in articles:
+#         row = conn.execute(
+#             "SELECT * FROM summaries WHERE summarised_by = ? AND prompt_hash = ? "
+#             "AND error IS NULL ORDER BY id DESC LIMIT 1",
+#             (summarised_by, prompt_hash(digest_prompt(article))),
+#         ).fetchone()
+#         if row is None:
+#             continue
+#         article.summarised_by = row["summarised_by"]
+#         article.summary_id = row["id"]
+#         article.title_en = row["title_en"]
+#         article.digest_summary = row["summary"]
+#         article.why_it_matters = row["why_it_matters"]
+
+
 def save_articles(conn: sqlite3.Connection, run_id: str, articles: list[Article]) -> None:
-    """Upsert each article, store its score if it is new (not reused), and
-    record its digest status for this run."""
+    """Upsert each article, store its score if it is new (not reused) and its
+    digest summary if it has one, and record its digest status for this run."""
     for article in articles:
         article_id = upsert_article(conn, article, run_id)
         if article.score_id is None and article.scored_by:
             article.score_id = insert_score(conn, article_id, article, run_id)
+        if article.summary_id is None and article.summarised_by:
+            article.summary_id = insert_summary(conn, article_id, article, run_id)
         section = None
         if article.published:
             section = SECTION_AIDB if article.digest_status == AI_HEADLINE else SECTION_ITS
         conn.execute(
             "INSERT OR REPLACE INTO digest_items "
-            "(run_id, article_id, score_id, digest_status, published, section) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (run_id, article_id, article.score_id, article.digest_status,
-             int(article.published), section),
+            "(run_id, article_id, score_id, summary_id, digest_status, published, section) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (run_id, article_id, article.score_id, article.summary_id,
+             article.digest_status, int(article.published), section),
         )
 
 
@@ -390,7 +464,7 @@ def import_legacy(conn: sqlite3.Connection) -> None:
 
 def print_stats(conn: sqlite3.Connection) -> None:
     print(f"Database: {DB_PATH}")
-    for table in ("runs", "articles", "scores", "digest_items", "aidb_episodes", "aidb_story_sets"):
+    for table in ("runs", "articles", "scores", "summaries", "digest_items", "aidb_episodes", "aidb_story_sets"):
         n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         print(f"  {table:<16} {n:>6}")
     print("\nArticles by source:")
