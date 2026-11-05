@@ -49,7 +49,7 @@ Three decisions guide development from here (see also "Vision and Differentiatio
 | **v0.3** | Local LLM integration using Ollama | ✅ Wrapped up (2026-11-03); Ollama benchmark and evaluation dataset deferred (section 3.6) |
 | **v0.4** | SQLite news repository | ✅ Complete (2026-11-03, section 4) |
 | **v0.5** | WhatsApp-ready digest | ✅ Complete (2026-11-03, section 5) |
-| **v0.6** | Searchable web interface | Planned |
+| **v0.6** | Searchable web interface | Specified (2026-11-05, `docs/v0.6-web-interface-spec.md`); not started |
 | **v0.7** | Embeddings, semantic search and RAG | Planned |
 | **v0.8** | Agentic news research | Planned |
 
@@ -477,6 +477,8 @@ ITS history in the database starts on 2026-11-03 (three imported runs and the fi
 
 ### v0.6 — Searchable web interface
 View current and past digests; search and filter by date, source and relevance; view summaries and scoring reasons; basic controls for configuration and digest generation. Backed by SQLite.
+
+**Specified 2026-11-05:** `docs/v0.6-web-interface-spec.md`. Core scope: daily briefing, catch-up and archive (A1–A3, B3); keyword search with filters (B1–B2); near-misses and scoring explanations (D1–D2). Read-only on `news.db`, with a separate FTS5 index (`search.db`, English and Chinese tokenizers). Decisions: FastAPI + Jinja2, localhost only; briefing of a day = latest pipeline run; `NEAR_MISS_MARGIN` in `config.py` (default 4); `reader.py` refactored onto a shared queries module. Exit criterion: spec section 8. Not in the core: metrics dashboard (D3–D4), run health (E1), anything that writes (labelling, collections, runs, settings).
 
 ### v0.7 — Embeddings, semantic search and RAG
 Embed articles; vector retrieval; natural-language questions over history; grounded answers with citations. Evaluate local embedding models (Ollama serves these) before cloud options.
