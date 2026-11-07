@@ -1,6 +1,6 @@
 # AI Mobility News App — Checkpoint
 
-_Last updated: 2026-11-03 — Gasgoo feeds added and Chinese AI feeds examined (section 2.8); product strategy and priorities added (November 2026); v0.4 (SQLite repository) and v0.5 (WhatsApp-ready digest) complete (sections 4 and 5). Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
+_Last updated: 2026-11-07 — roadmap revised: agentic extraction and recovery inserted as v0.7, semantic search/RAG moves to v0.8 and agentic research to v0.9 (Roadmap, section 6). Earlier (2026-11-03): Gasgoo feeds added and Chinese AI feeds examined (section 2.8); product strategy and priorities added (November 2026); v0.4 (SQLite repository) and v0.5 (WhatsApp-ready digest) complete (sections 4 and 5). Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
 
 ## Project
 
@@ -35,12 +35,13 @@ Three decisions guide development from here (see also "Vision and Differentiatio
 
 3. **Let the product strategy shape later releases.**
    - **v0.6 (web interface):** focus on a good reading experience.
-   - **v0.7 (embeddings, semantic search):** connect related stories, including across languages.
-   - **v0.8 (agentic research):** evolve into deeper research and intelligence generation.
+   - **v0.7 (agentic extraction and recovery):** recover full text where the fixed extraction rules fail, with a bounded, measurable agent.
+   - **v0.8 (embeddings, semantic search):** connect related stories, including across languages.
+   - **v0.9 (agentic research):** evolve into deeper research and intelligence generation.
 
 ---
 
-## Roadmap (revised 2026-11-03)
+## Roadmap (revised 2026-11-07)
 
 | Version | Focus | Status |
 |---|---|---|
@@ -50,10 +51,13 @@ Three decisions guide development from here (see also "Vision and Differentiatio
 | **v0.4** | SQLite news repository | ✅ Complete (2026-11-03, section 4) |
 | **v0.5** | WhatsApp-ready digest | ✅ Complete (2026-11-03, section 5) |
 | **v0.6** | Searchable web interface | Specified (2026-11-05, `docs/v0.6-web-interface-spec.md`); not started |
-| **v0.7** | Embeddings, semantic search and RAG | Planned |
-| **v0.8** | Agentic news research | Planned |
+| **v0.7** | Agentic intelligent extraction and recovery | New (2026-11-07), proposed (section 6) |
+| **v0.8** | Embeddings, semantic search and RAG | Planned (was v0.7) |
+| **v0.9** | Agentic news research and intelligence generation | Planned (was v0.8) |
 
 Changes from the previous roadmap: local LLM inference via Ollama is inserted as v0.3, and every later version moves down one number. Automatic WhatsApp delivery remains out of scope.
+
+Revision 2026-11-07: a new v0.7, agentic extraction and recovery, is inserted after the web interface; semantic search/RAG becomes v0.8 and agentic research v0.9. The order follows the learning path: workflow engineering (v0.1–v0.6) → bounded agent engineering (v0.7) → knowledge engineering (v0.8) → agentic research (v0.9), and each step stays useful to the product. The remaining v0.2 work, especially Chinese-source validation and extraction diagnostics, continues alongside v0.6.
 
 Revision 2026-11-03: Chinese-language sources are part of v0.2 (source coverage). v0.2 was to be closed before v0.4 started; in the event v0.4 started first (same day), and the remaining v0.2 items (section 2.7) run alongside it.
 
@@ -238,7 +242,7 @@ The transport and AI feeds added since then have not been checked yet.
 **Cleanup**
 - [ ] Remove scratch code: `openAI.py`, `substack.py`, `src/geoai_signal_feed.xml` (225 KB, tracked), commented-out blocks
 - [x] Remove unused imports in `feeds.py` (`random`, `fetch_esri_articles`) and its commented-out `__main__` experiments (2026-11-03)
-- [ ] Remove `playwright` from `pyproject.toml`; declare `pydantic`
+- [ ] Remove `playwright` from `pyproject.toml` (on hold: v0.7 may use browser rendering, section 6); declare `pydantic`
 - [ ] Regenerate `docs/sample-digest.md` (current sample is from v0.1)
 
 ### 2.8 Chinese-language sources (started 2026-11-03; active priority again from November 2026)
@@ -269,7 +273,7 @@ The transport and AI feeds added since then have not been checked yet.
 | ITHome | Full text in the feed; ~350 articles / day, mostly consumer tech | Candidate, only with `FEED_KEYWORDS` |
 | Leiphone Smart Transportation | Newest entry ~3.6 years old | ❌ Dropped (abandoned) |
 | 36Kr Articles (`36kr.com/feed-article`) | Serves an HTML page, not RSS | ❌ Dropped unless a working URL is found |
-| Tropical Geography (Remote Sensing & GIS; AI & Geography), Acta Geographica (GIS) | Connection timeouts or HTML error pages, possibly unreachable from outside China; journals publish monthly or bimonthly | ❌ Dropped; park for v0.8 (research), not the daily digest |
+| Tropical Geography (Remote Sensing & GIS; AI & Geography), Acta Geographica (GIS) | Connection timeouts or HTML error pages, possibly unreachable from outside China; journals publish monthly or bimonthly | ❌ Dropped; park for v0.9 (research), not the daily digest |
 
 First check (2 articles, OpenAI): reasons, summary and "why it matters" came back in English, and titles were translated, e.g. "90 后北大副教授董豪：启元机器人，正在勇闯具身终局" → "Dong Hao, a Peking University Associate Professor Born in the 1990s: Qiyuan Robotics Pushes Toward the Embodied AI Endgame". Both scored T1 / A2 / G0 (interview and event coverage, not deployments).
 
@@ -297,7 +301,7 @@ First check (2 articles, OpenAI): reasons, summary and "why it matters" came bac
 - [ ] Run daily for several days and review the debug digests for Chinese articles: are scores fair compared with similar English articles, is all generated text in English, are summaries accurate?
 - [ ] Decide on the candidates above, starting with Leiphone Intelligent Driving (transport) and ITHome with the keyword filter.
 - [ ] Decide whether China should be named in the transport rubric as a particular interest alongside Singapore.
-- [ ] Known limitation: the same story in English and Chinese sources is not deduplicated (different URLs and titles); needs embeddings (v0.7) or a model-based check. (The same title within or across Chinese feeds is now caught by title dedupe.)
+- [ ] Known limitation: the same story in English and Chinese sources is not deduplicated (different URLs and titles); needs embeddings (v0.8) or a model-based check. (The same title within or across Chinese feeds is now caught by title dedupe.)
 - [ ] Optional: show the English title in the debug digest too.
 
 ---
@@ -435,7 +439,7 @@ Splits, scores and classifies every archive episode in a date range (`--since`, 
 Decided against (2026-11-03), because production runs once a day at a fixed time and re-runs only after a failure:
 - **Summary reuse:** summaries are stored with their prompt hash, but not reused; `db.reuse_summaries()`, its call in `main.py` and the skip in `summarise_articles()` are commented out, ready to enable.
 - **Avoid refetching pages:** with a 24-hour window and one daily run the same page is almost never fetched twice; a refetch costs seconds, not LLM calls, and scores are still reused when the text is unchanged.
-- **Track earlier digest appearances:** an episode is stamped 23:59 UTC (07:59 Singapore time), so a fixed evening run sees each episode once; repeats only arise from runs before ~08:00 or several runs a day. `digest_items` already holds the history if this is needed later. Same story under different URLs or sources is semantic matching, for v0.7.
+- **Track earlier digest appearances:** an episode is stamped 23:59 UTC (07:59 Singapore time), so a fixed evening run sees each episode once; repeats only arise from runs before ~08:00 or several runs a day. `digest_items` already holds the history if this is needed later. Same story under different URLs or sources is semantic matching, for v0.8.
 - **Historical queries** beyond the reader and `--stats` (score history per article, top articles by source) wait for v0.6.
 
 Remaining (all done):
@@ -480,11 +484,61 @@ View current and past digests; search and filter by date, source and relevance; 
 
 **Specified 2026-11-05:** `docs/v0.6-web-interface-spec.md`. Core scope: daily briefing, catch-up and archive (A1–A3, B3); keyword search with filters (B1–B2); near-misses and scoring explanations (D1–D2). Read-only on `news.db`, with a separate FTS5 index (`search.db`, English and Chinese tokenizers). Decisions: FastAPI + Jinja2, localhost only; briefing of a day = latest pipeline run; `NEAR_MISS_MARGIN` in `config.py` (default 4); `reader.py` refactored onto a shared queries module. Exit criterion: spec section 8. Not in the core: metrics dashboard (D3–D4), run health (E1), anything that writes (labelling, collections, runs, settings).
 
-### v0.7 — Embeddings, semantic search and RAG
-Embed articles; vector retrieval; natural-language questions over history; grounded answers with citations. Evaluate local embedding models (Ollama serves these) before cloud options.
+### v0.7 — Agentic intelligent extraction and recovery (proposed 2026-11-07)
 
-### v0.8 — Agentic news research
-Identify emerging themes, run targeted follow-up searches, compare sources, track developments over time, produce thematic briefings for configurable topics.
+**Objective:** an AI agent that diagnoses content extraction problems, selects recovery tools, evaluates the results and decides when to stop or escalate, inside a controlled workflow. Learning goal: tool calling, reasoning loops, recovery, stopping conditions and agent evaluation ("can AI choose how to complete a bounded task?").
+
+**Design principle:** the agent runs only when the conventional extraction cannot give a satisfactory result. That avoids unnecessary LLM calls and makes the agent's added value measurable.
+
+```text
+Existing RSS / page extraction
+→ completeness and quality checks
+     sufficient   → continue pipeline
+     insufficient → recovery agent (bounded loop: diagnose → select tool → retry → evaluate)
+                    → structured outcome: recovered text / best available text / failure reason
+→ normalise → score → summarise → publish (existing deterministic pipeline)
+```
+
+| Capability | Description |
+|---|---|
+| Completeness assessment | Does the RSS or page extraction give enough article content? |
+| Failure diagnosis | Tell apart incomplete content, parsing failures, encoding issues, access restrictions and irrelevant page text |
+| Tool selection | Choose from registered tools: RSS extraction, HTTP fetch, HTML parsing, browser rendering |
+| Recovery | Decide which permitted alternative to try, based on the diagnostic evidence |
+| Result evaluation | Is the recovered text complete, clean and fit for scoring? |
+| Controlled termination | Stop on success, exhausted attempts, budget limits or unrecoverable failure |
+| Traceability | Log actions, tool results, decisions, token usage and final status |
+
+**Milestones:**
+1. **Baseline:** build a set of successful and failed extraction cases from `inspect_extraction()` and the feed diagnostics, including Chinese pages.
+2. **Tool registry:** wrap the existing extraction functions as tools with defined inputs, outputs and error handling.
+3. **Decision loop:** reasoning, tool selection, execution, result evaluation and stopping conditions.
+4. **Integration:** call the agent selectively from the extraction step; store its outcomes in SQLite.
+5. **Evaluation, agent versus workflow:** take 30–50 problem articles (Google Research, QbitAI, TransportXtra, blocked sites, other incomplete feeds) and run each through (a) deterministic extraction with predefined fallback rules and (b) LLM-directed tool selection and recovery. Compare extraction success, content quality, latency, LLM cost and reproducibility. This is the main learning component: it shows where agentic reasoning helps and where better conventional code would be simpler.
+
+**Proposed exit criteria** (engineering targets, not measured performance; establish the baseline before committing to the thresholds):
+
+| Metric | Target |
+|---|---|
+| Recovery effectiveness | ≥ 25% of genuinely recoverable baseline failures recovered |
+| Quality | ≥ 95% of accepted recoveries pass a manual completeness and cleanliness check |
+| Controlled execution | 100% of runs respect the configured tool, retry and budget limits |
+| Observability | 100% of decisions and tool calls recorded |
+| Regression | No significant degradation of successful conventional extractions |
+
+Evidence: a working recovery agent, documented decision traces, automated tests and a benchmark against rule-based extraction.
+
+**Boundaries:**
+- Access restrictions (403s such as The Robot Report, ITS International, Esri) are diagnosed and reported as unrecoverable, or routed to a permitted alternative source (as Esri search already is). The agent does not try to circumvent them.
+- Browser rendering would reintroduce a browser dependency: hold the `playwright` removal (section 2.7) until v0.7 decides whether it is needed.
+- The feed-diagnostics Claude CLI skill stays a development and diagnostic tool, separate from the runtime agent.
+- Not in scope: source discovery and editorial research (later phases).
+
+### v0.8 — Embeddings, semantic search and RAG
+Embed articles; vector retrieval; cross-language semantic matching; natural-language questions over history; grounded answers with citations. Evaluate local embedding models (Ollama serves these) before cloud options. Learning goal: "can AI retrieve and synthesise relevant historical information reliably?"
+
+### v0.9 — Agentic news research and intelligence generation
+Identify emerging themes, run targeted follow-up searches, compare sources, track developments over time, produce thematic briefings for configurable topics. Combines v0.7's bounded agent loop with v0.8's retrieval. Learning goal: "can AI plan and conduct a multi-step research task with bounded autonomy?"
 
 ### Not yet on the roadmap (suggested)
 - Scheduled daily runs (Windows Task Scheduler or similar)
@@ -669,3 +723,4 @@ Next:
 4. Tune thresholds from the debug digests.
 5. Fix the GPU, then the deferred v0.3 items (section 3.6): evaluation dataset, Ollama benchmark, Ollama exit criterion.
 6. v0.6: searchable web interface, focused on reading experience (section 6).
+7. Then v0.7, agentic extraction and recovery (section 6). Its baseline case set can be collected during the v0.2 extraction work.
