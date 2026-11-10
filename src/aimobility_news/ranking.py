@@ -6,7 +6,7 @@ from .config import (
     AIDB_SOURCE,
     AIDB_HEADLINES_MIN_AI_SCORE,
 )
-from .models import Article
+from .models import Article, ROUNDUP
 
 
 QUALIFIED = "qualified"
@@ -25,7 +25,9 @@ def rank_articles(articles: list[Article]) -> list[Article]:
 
 
 def classify_article(article: Article) -> str:
-    # qualified: total_score reaches MIN_TOTAL_SCORE
+    # qualified: total_score reaches MIN_TOTAL_SCORE, and the article is not
+    #            a roundup (roundups score across many topics without one
+    #            substantial story, so at most they are notable)
     # ai headline: otherwise, an AI Daily Brief story whose AI score reaches
     #            AIDB_HEADLINES_MIN_AI_SCORE (own digest section, own cap)
     # notable:   otherwise, any one domain reaches its NOTABLE_MIN_* score
@@ -34,7 +36,10 @@ def classify_article(article: Article) -> str:
     if article.scoring_error:
         return SCORING_FAILED
 
-    if (article.total_score or 0) >= MIN_TOTAL_SCORE:
+    if (
+        (article.total_score or 0) >= MIN_TOTAL_SCORE
+        and article.article_type != ROUNDUP
+    ):
         return QUALIFIED
 
     if (
@@ -59,18 +64,22 @@ def classify_articles(articles: list[Article]) -> list[Article]:
     return articles
 
 
+def digest_order(ranked_articles: list[Article]) -> list[Article]:
+    # Qualified articles, then notable ones with roundups last, each group
+    # highest total first. Grouped explicitly because a roundup can be
+    # notable with a total above MIN_TOTAL_SCORE.
+    qualified = [a for a in ranked_articles if a.digest_status == QUALIFIED]
+    notable = [a for a in ranked_articles if a.digest_status == NOTABLE]
+    # sorted() is stable, so the order within each group is kept
+    return qualified + sorted(notable, key=lambda a: a.article_type == ROUNDUP)
+
+
 def select_for_digest(
     ranked_articles: list[Article],
     limit: int,
 ) -> list[Article]:
-    # Qualified and notable articles, highest total first, up to limit.
-    # Notable articles always score below MIN_TOTAL_SCORE, so in ranked
-    # order every qualified article comes before every notable one.
-    published = [
-        article
-        for article in ranked_articles
-        if article.digest_status in (QUALIFIED, NOTABLE)
-    ][:limit]
+    # The first `limit` articles in digest_order()
+    published = digest_order(ranked_articles)[:limit]
 
     for article in published:
         article.published = True

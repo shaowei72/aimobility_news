@@ -82,6 +82,28 @@ def test_migrate_adds_one_liner_to_a_v04_summaries_table(temp_db):
     assert (row["summary"], row["one_liner"]) == ("Old summary.", None)
 
 
+def test_migrate_adds_labels_to_an_older_scores_table(temp_db):
+    temp_db.parent.mkdir(parents=True)
+    old = sqlite3.connect(temp_db)
+    old.executescript("""
+        CREATE TABLE scores (
+            id INTEGER PRIMARY KEY, article_id INTEGER NOT NULL, run_id TEXT,
+            scored_at TEXT NOT NULL, scored_by TEXT NOT NULL, code_version TEXT,
+            prompt_hash TEXT, text_label TEXT, text TEXT,
+            transport_score INTEGER, transport_reason TEXT, ai_score INTEGER,
+            ai_reason TEXT, gis_score INTEGER, gis_reason TEXT,
+            total_score INTEGER, error TEXT);
+        INSERT INTO scores (article_id, scored_at, scored_by, total_score)
+        VALUES (1, 'now', 'openai:m', 20);
+    """)
+    old.commit()
+    old.close()
+
+    with db.session() as conn:
+        row = conn.execute("SELECT total_score, market, article_type FROM scores").fetchone()
+    assert (row["total_score"], row["market"], row["article_type"]) == (20, None, None)
+
+
 # ------------------------------------------------------------
 # Articles
 # ------------------------------------------------------------
@@ -120,6 +142,7 @@ def test_stored_score_is_reused_for_an_identical_prompt(fake_llm):
     assert same.score_id == article.score_id
     assert (same.transport_score, same.ai_score, same.gis_score, same.total_score) == (3, 4, 1, 23)
     assert same.ai_reason == "a"
+    assert (same.market, same.article_type) == ("Singapore", "news")
     assert fake_llm.count("scoring") == 1
 
 

@@ -41,7 +41,8 @@ class FakeLLM:
             raise self.fail[label]
         if schema is ArticleScore:
             return ArticleScore(transport_reason="t", transport_score=3,
-                                ai_reason="a", ai_score=4, gis_reason="g", gis_score=1)
+                                ai_reason="a", ai_score=4, gis_reason="g", gis_score=1,
+                                market="Singapore", article_type="news")
         if schema is DigestEntry:
             return DigestEntry(title_en="", summary=f"Summary of {label}. Second sentence.",
                                why_it_matters=f"Why {label}")

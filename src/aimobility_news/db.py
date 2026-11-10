@@ -91,7 +91,9 @@ CREATE TABLE IF NOT EXISTS scores (
     gis_score        INTEGER,
     gis_reason       TEXT,
     total_score      INTEGER,
-    error            TEXT                -- set when the scoring call failed
+    error            TEXT,               -- set when the scoring call failed
+    market           TEXT,               -- models.Market label (v0.6)
+    article_type     TEXT                -- models.ArticleType label (v0.6)
 );
 CREATE INDEX IF NOT EXISTS scores_article ON scores(article_id);
 CREATE INDEX IF NOT EXISTS scores_reuse ON scores(scored_by, prompt_hash);
@@ -163,6 +165,8 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
 ADDED_COLUMNS = [
     ("digest_items", "summary_id", "INTEGER REFERENCES summaries(id)"),   # v0.4
     ("summaries", "one_liner", "TEXT"),                                   # v0.5
+    ("scores", "market", "TEXT"),                                         # v0.6
+    ("scores", "article_type", "TEXT"),                                   # v0.6
 ]
 
 
@@ -290,6 +294,8 @@ def reuse_scores(conn: sqlite3.Connection, articles: list[Article]) -> list[Arti
             setattr(article, f"{field}_score", row[f"{field}_score"])
             setattr(article, f"{field}_reason", row[f"{field}_reason"])
         article.total_score = row["total_score"]
+        article.market = row["market"]
+        article.article_type = row["article_type"]
     return to_score
 
 
@@ -301,14 +307,16 @@ def insert_score(conn: sqlite3.Connection, article_id: int, article: Article, ru
         """
         INSERT INTO scores (article_id, run_id, scored_at, scored_by, code_version, prompt_hash,
                             text_label, text, transport_score, transport_reason, ai_score,
-                            ai_reason, gis_score, gis_reason, total_score, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ai_reason, gis_score, gis_reason, total_score, error,
+                            market, article_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (article_id, run_id, now_utc(), article.scored_by, code_version(),
          prompt_hash(scoring_prompt(article)), text_label, text,
          article.transport_score, article.transport_reason, article.ai_score,
          article.ai_reason, article.gis_score, article.gis_reason,
-         article.total_score, article.scoring_error),
+         article.total_score, article.scoring_error,
+         article.market, article.article_type),
     )
     return cur.lastrowid
 

@@ -30,7 +30,7 @@ from .config import (
     WHATSAPP_ONE_LINERS,
 )
 from .models import Article
-from .ranking import QUALIFIED, NOTABLE
+from .ranking import QUALIFIED, NOTABLE, digest_order
 
 
 class OneLiner(BaseModel):
@@ -49,8 +49,9 @@ class OneLiners(BaseModel):
 def select_its_items(ranked_articles: list[Article]) -> list[Article]:
     # Same order as the Markdown digest: qualified first, then notable
     statuses = (QUALIFIED, NOTABLE) if WHATSAPP_INCLUDE_NOTABLE else (QUALIFIED,)
-    published = [a for a in ranked_articles if a.published and a.digest_status in statuses]
-    published.sort(key=lambda a: a.digest_status != QUALIFIED)
+    # digest_order(): qualified first, then notable with roundups last
+    published = [a for a in digest_order(ranked_articles)
+                 if a.published and a.digest_status in statuses]
     return published[:WHATSAPP_MAX_ITS]
 
 

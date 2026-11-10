@@ -7,7 +7,7 @@ from . import llm
 from .models import Article
 from .scoring import text_for_scoring
 from .textlen import text_length
-from .ranking import QUALIFIED, NOTABLE, AI_HEADLINE, BELOW_THRESHOLD, SCORING_FAILED
+from .ranking import QUALIFIED, NOTABLE, AI_HEADLINE, BELOW_THRESHOLD, SCORING_FAILED, digest_order
 
 
 # Project root (two levels above src/aimobility_news/), so digests always
@@ -91,6 +91,13 @@ def score_breakdown(article: Article) -> str:
     )
 
 
+def labels(article: Article) -> str:
+    # e.g. "Singapore · policy"; empty for scores stored before labels existed
+    return " · ".join(
+        label for label in (article.market, article.article_type) if label
+    )
+
+
 def append_article_entry(lines: list[str], number: int, article: Article):
     # Rendering only; the summary comes from summarise_articles() or the
     # database. A failed summary call keeps the article without a summary.
@@ -111,6 +118,8 @@ def append_article_entry(lines: list[str], number: int, article: Article):
         lines.append(f"_{title_en}_")
         lines.append("")
     lines.append(f"**Source:** {article.source}")
+    if labels(article):
+        lines.append(f"**Labels:** {labels(article)}")
     lines.append(f"**Score:** {score_breakdown(article)}")
     lines.append("")
     lines.append(summary)
@@ -146,14 +155,9 @@ def generate_digest(
     # - AI Daily Brief: the stories from select_ai_headlines()
     # Both headings always appear, with a note when a section is empty.
     ai_headlines = ai_headlines or []
-    qualified = [
-        article for article in ranked_articles
-        if article.published and article.digest_status == QUALIFIED
-    ]
-    notable = [
-        article for article in ranked_articles
-        if article.published and article.digest_status == NOTABLE
-    ]
+    published = [a for a in digest_order(ranked_articles) if a.published]
+    qualified = [a for a in published if a.digest_status == QUALIFIED]
+    notable = [a for a in published if a.digest_status == NOTABLE]
 
     summarise_articles(qualified + notable)
 
@@ -240,16 +244,17 @@ def generate_debug_digest(
     lines.append("")
 
     lines.append(
-        "| # | Status | Total | Transport | AI | GIS | Source | Title |"
+        "| # | Status | Total | Transport | AI | GIS | Market | Type | Source | Title |"
     )
-    lines.append("|---|---|---|---|---|---|---|---|")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|")
 
     for i, article in enumerate(ranked_articles, start=1):
         title = article.title.replace("|", "\\|")
         lines.append(
             f"| {i} | {status(article)} | {article.total_score} "
             f"| {article.transport_score} | {article.ai_score} "
-            f"| {article.gis_score} | {article.source} | {title} |"
+            f"| {article.gis_score} | {article.market} | {article.article_type} "
+            f"| {article.source} | {title} |"
         )
 
     lines.append("")
@@ -266,6 +271,7 @@ def generate_debug_digest(
         lines.append(f"**Scored on:** {text_label} ({words} words)")
         lines.append(f"**Scored by:** {article.scored_by}")
         lines.append(f"**Score:** {score_breakdown(article)}")
+        lines.append(f"**Labels:** {labels(article) or 'none'}")
         if article.scoring_error:
             lines.append(f"**Scoring error:** {article.scoring_error}")
         lines.append("")

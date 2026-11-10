@@ -1,4 +1,4 @@
-from .models import Article
+from .models import Article, Market, ArticleType
 from pydantic import BaseModel, Field
 from . import llm
 from .config import MAX_CONTENT_WORDS
@@ -8,6 +8,8 @@ from .textlen import truncate_text
 # Field order follows the prompt: transport, AI, GIS.
 # Scores are bounded 0-5: Ollama and OpenAI receive the bounds in the JSON
 # schema, and Pydantic rejects anything outside them (which triggers a retry).
+# market and article_type are labels, not scores: the Literal types become
+# enums in the JSON schema, so only the listed values are accepted.
 class ArticleScore(BaseModel):
     transport_reason: str
     transport_score: int = Field(ge=0, le=5)
@@ -15,6 +17,8 @@ class ArticleScore(BaseModel):
     ai_score: int = Field(ge=0, le=5)
     gis_reason: str
     gis_score: int = Field(ge=0, le=5)
+    market: Market
+    article_type: ArticleType
 
 def text_for_scoring(article: Article) -> tuple[str, str | None]:
     # Prefer the full article text when the feed provides it, capped for cost.
@@ -285,8 +289,49 @@ GENERAL SCORING RULES
     Score it on the same basis, and always write the
     explanations in English.
 
-Return the three scores and their explanations using
-the existing structured output schema.
+
+------------------------------------------------------------
+LABELS (market, article_type)
+------------------------------------------------------------
+
+Also label the article. Labels describe the article; they
+do not affect the scores above.
+
+market: where the development takes effect (the deployment,
+policy, service or research setting), not where the company
+or publisher is based. A Chinese company launching robotaxis
+in the US is "US".
+- "Singapore", "US", "China" or "Europe" when the article
+  mainly concerns that market
+- "Global" when it spans several markets or is not tied to
+  any one market (e.g. a new AI model, a multi-country roundup)
+- "Other" when it mainly concerns a market not listed
+  (e.g. Japan, India, Australia)
+
+article_type: what kind of article it is.
+- "news": reporting of a development, with the publisher's
+  own reporting or more than one source
+- "research": reports a study, paper, dataset or benchmark
+  results
+- "policy": mainly about government policy, regulation,
+  standards, funding programmes or public plans
+- "opinion": commentary, analysis or interview where the
+  author's or interviewee's view is the main content
+- "press_release": a company or organisation announcing its
+  own product, partnership, contract or result, as published
+  or lightly rewritten. Signs: quotes only from the announcing
+  organisation, no independent sources, promotional wording,
+  an "About <company>" paragraph at the end.
+- "roundup": a collection of several separate news items,
+  such as a daily or weekly news digest or newsletter. Signs:
+  several unrelated headlines, each with a short paragraph;
+  titles like "This week in..." or "Morning briefing".
+
+Choose the single best-fitting type. A government
+announcement is "policy", not "press_release".
+
+Return the three scores, their explanations and the two
+labels using the existing structured output schema.
 
 
 Article title:
@@ -311,6 +356,8 @@ def score_article(article: Article) -> Article:
     article.ai_reason = scores.ai_reason
     article.gis_score = scores.gis_score
     article.gis_reason = scores.gis_reason
+    article.market = scores.market
+    article.article_type = scores.article_type
 
     article.total_score = combine_scores(
         article.transport_score, article.ai_score, article.gis_score
@@ -374,3 +421,4 @@ if __name__ == "__main__":
     print(f"AI score: {scored_article.ai_score} — {scored_article.ai_reason}")
     print(f"GIS score: {scored_article.gis_score} — {scored_article.gis_reason}")
     print(f"Total score: {scored_article.total_score}")
+    print(f"Market: {scored_article.market}; type: {scored_article.article_type}")
