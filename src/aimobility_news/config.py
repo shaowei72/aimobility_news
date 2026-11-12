@@ -159,15 +159,6 @@ FEEDS = {
     # **FEEDS_AI_CN,               # on hold (checkpoint section 2.8)
 }
 
-RECENT_HOURS = 24
-
-# Longer lookback for sources whose feeds lag. Gasgoo's feeds leave out the
-# current day (Beijing time), so at an evening run its newest articles are
-# ~20-44 hours old; 48 hours catches each day once. main.py skips articles
-# already published in an earlier run, so the overlap is not published twice.
-RECENT_HOURS_OVERRIDES = {source: 48 for source in FEEDS_transport_CN}
-
-
 # total = (transport + 1) x (ai + gis + 1) - 1, range 0-65 (see scoring.py).
 # 11 = some transport link plus AI/GIS, e.g. T2 + A3, T3 + A2; nothing without
 # transport passes (max 10). 15 = T3 + A3, roughly the old 9 on AI x transport.
@@ -262,3 +253,15 @@ MAX_CONTENT_WORDS = 1500
 # A feed summary at least this long is treated as the full article text
 FULL_TEXT_MIN_WORDS = 150
 
+RECENT_HOURS = 24
+RECENT_HOURS_OVERRIDES_VALUE = 48
+
+# Longer lookback for sources whose feeds lag. Gasgoo's feeds leave out the
+# current day (Beijing time), so at an evening run its newest articles are
+# ~20-44 hours old; 48 hours catches each day once. main.py skips articles
+# already published in an earlier run, so the overlap is not published twice.
+# AI Daily Brief: episodes are dated by day (stamped 23:59 UTC) and reach the
+# archive up to ~13 h after that, so 24 h often misses them. This block sits
+# at the end of the file because it needs AIDB_SOURCE.
+RECENT_HOURS_OVERRIDES = {source: RECENT_HOURS_OVERRIDES_VALUE for source in FEEDS_transport_CN}
+RECENT_HOURS_OVERRIDES[AIDB_SOURCE] = RECENT_HOURS_OVERRIDES_VALUE

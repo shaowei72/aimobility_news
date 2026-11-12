@@ -3,14 +3,15 @@ from datetime import datetime, timedelta, timezone
 import requests
 from bs4 import BeautifulSoup
 
-from .config import AIDB_SOURCE, RECENT_HOURS
+from .config import AIDB_SOURCE, RECENT_HOURS, RECENT_HOURS_OVERRIDES
 from .models import Article
 
 
 ARCHIVE_URL = "https://aidailybrief.ai/archive"
+AIDB_RECENT_HOURS = RECENT_HOURS_OVERRIDES.get(AIDB_SOURCE, RECENT_HOURS)
 
 
-def fetch_aidailybrief_stories(hours: int = RECENT_HOURS) -> list[Article]:
+def fetch_aidailybrief_stories(hours: int = AIDB_RECENT_HOURS) -> list[Article]:
     """One Article per story in each recent episode.
 
     Episodes are split by aidailybrief_transcript.build_stories() (LLM calls,
