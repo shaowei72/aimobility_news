@@ -142,6 +142,17 @@ def test_an_explicit_window_applies_to_every_source():
     assert feeds.filter_recent_articles(articles, hours=24) == []
 
 
+def test_min_hours_widens_every_window_but_never_shrinks_one():
+    articles = [aged("gasgoo-40h", GASGOO, 40), aged("gasgoo-80h", GASGOO, 80),
+                aged("electrek-40h", "Electrek", 40), aged("electrek-100h", "Electrek", 100)]
+    # 96 h: wider than both normal windows, so it applies to both sources
+    kept = [a.title for a in feeds.filter_recent_articles(articles, min_hours=96)]
+    assert kept == ["gasgoo-40h", "gasgoo-80h", "electrek-40h"]
+    # 12 h: narrower than both, so the normal windows (48 h, 24 h) stay
+    kept = [a.title for a in feeds.filter_recent_articles(articles, min_hours=12)]
+    assert kept == ["gasgoo-40h"]
+
+
 def test_articles_published_earlier_are_dropped_and_others_kept():
     old = make_article("Published yesterday already", url="https://x.test/a?utm_source=rss")
     new = make_article("Brand new article today", url="https://x.test/b")

@@ -204,7 +204,7 @@ def fetch_articles(feeds: dict[str, str] | None = None):
 
     return articles
 
-def filter_recent_articles(articles, hours: int | None = None):
+def filter_recent_articles(articles, hours: int | None = None, min_hours: int = 0):
     # Keep articles published within the lookback window: RECENT_HOURS, or
     # RECENT_HOURS_OVERRIDES for sources whose feeds lag (e.g. Gasgoo).
     # Passing hours applies that one window to every source (for inspection).
@@ -217,7 +217,8 @@ def filter_recent_articles(articles, hours: int | None = None):
         if article.published_at is None:
             continue
 
-        window = hours or RECENT_HOURS_OVERRIDES.get(article.source, RECENT_HOURS)
+        default = max(min_hours, hours or RECENT_HOURS_OVERRIDES.get(article.source, RECENT_HOURS))
+        window = hours or default 
         if article.published_at >= now - timedelta(hours=window):
             recent_articles.append(article)
 

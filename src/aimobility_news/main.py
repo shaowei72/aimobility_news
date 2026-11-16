@@ -22,7 +22,7 @@ from .digest import generate_digest, generate_debug_digest, save_digest
 from .digest_whatsapp import build_whatsapp, copy_to_clipboard
 from . import db
 from .esri_search import fetch_esri_articles
-from .aidailybrief import fetch_aidailybrief_stories
+from .aidailybrief import fetch_aidailybrief_stories, AIDB_RECENT_HOURS
 from .config import TOP_RANKED, MIN_TOTAL_SCORE, AIDB_HEADLINES_MAX, WHATSAPP_COPY_TO_CLIPBOARD
 
 
@@ -45,7 +45,9 @@ def print_timing_summary(total):
     print(f"{'Total':<35} {total:6.1f}s")
 
 
-def main(provider: str | None = None):
+def main(provider: str | None = None, min_hours: int = 0):
+    # min_hours widens the lookback window for this run only (e.g. to catch
+    # up after missed days); it never shrinks a source's normal window.
     if provider:
         llm.set_provider(provider)
 
@@ -72,7 +74,9 @@ def main(provider: str | None = None):
         # Recent episodes split into stories (LLM, task "transcript"; cached
         # per episode). A failure skips the source instead of aborting the run.
         try:
-            aidailybrief_articles = fetch_aidailybrief_stories()
+            aidailybrief_articles = fetch_aidailybrief_stories(
+                hours=max(AIDB_RECENT_HOURS, min_hours)
+            )
         except Exception as e:
             print(f"WARNING: AI Daily Brief skipped: {type(e).__name__}: {e}")
             aidailybrief_articles = []
@@ -92,7 +96,7 @@ def main(provider: str | None = None):
     print(f"Combined articles: {len(articles)}")
 
     with timed("Filter recent"):
-        recent_articles = filter_recent_articles(articles)
+        recent_articles = filter_recent_articles(articles, min_hours=min_hours)
     print(f"Recent articles: {len(recent_articles)}")
 
     # for article in recent_articles:
@@ -189,6 +193,14 @@ if __name__ == "__main__":
         choices=llm.PROVIDERS,
         help="LLM provider for scoring and digest (default: LLM_PROVIDER in config.py)",
     )
+    parser.add_argument(
+        "--hours",
+        type=int,
+        default=0,
+        metavar="N",
+        help="widen the lookback window to at least N hours for this run "
+             "(e.g. 96 to catch up after missed days); normal windows otherwise",
+    )
     args = parser.parse_args()
 
-    main(provider=args.provider)
+    main(provider=args.provider, min_hours=args.hours)
