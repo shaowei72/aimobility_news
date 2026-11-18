@@ -1,6 +1,6 @@
 # AI Mobility News App — Checkpoint
 
-_Last updated: 2026-11-07 — roadmap revised: agentic extraction and recovery inserted as v0.7, semantic search/RAG moves to v0.8 and agentic research to v0.9 (Roadmap, section 6). Earlier (2026-11-03): Gasgoo feeds added and Chinese AI feeds examined (section 2.8); product strategy and priorities added (November 2026); v0.4 (SQLite repository) and v0.5 (WhatsApp-ready digest) complete (sections 4 and 5). Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
+_Last updated: 2026-11-19 — market and article-type labels with roundups down-ranked (2026-11-11, section 2.4), a 48-hour window for AI Daily Brief (2026-11-13) and a `--hours` catch-up option (2026-11-17) (section 2.6); `feed-diagnostics` skill added (section 2.6). Earlier (2026-11-07): roadmap revised: agentic extraction and recovery inserted as v0.7, semantic search/RAG moves to v0.8 and agentic research to v0.9 (Roadmap, section 6). Earlier (2026-11-03): Gasgoo feeds added and Chinese AI feeds examined (section 2.8); product strategy and priorities added (November 2026); v0.4 (SQLite repository) and v0.5 (WhatsApp-ready digest) complete (sections 4 and 5). Chinese-language sources on hold (section 2.8); Ollama benchmark and evaluation dataset deferred until the GPU is fixed (section 3.6)_
 
 ## Project
 
@@ -153,6 +153,8 @@ total_score = (transport + 1) × (ai + gis + 1) − 1        # 0–65
 
 A single domain scores at most 5, AI + GIS without transport at most 10; transport combined with AI and/or GIS multiplies.
 
+**Labels** (`289030e`, 2026-11-11): the same scoring call also returns a `market` (Singapore / US / China / Europe / Global / Other) and an `article_type` (news / research / policy / opinion / press_release / roundup), constrained by `Literal` enums (`models.Market`, `models.ArticleType`). They do not change `total_score`; policy that uses them lives in `ranking.py` (section 2.4), so it can change without re-scoring. Labels are stored in `scores.market` and `scores.article_type` (migrated columns) and reused with stored scores. The prompt change meant every article was re-scored once on the next run.
+
 History: v0.1 used `ai × geoai × transport` (1–5 each), which was too harsh. On 2026-10-28 this became `ai × transport` (0–5 each, GeoAI rewarded at levels 4–5 of each axis, range 0–25). On 2026-11-02 GIS became a separate axis with the formula above, and levels 4–5 now mean significance rather than spatial content.
 
 The revised roadmap text still describes "two-dimensional AI × transport scoring"; the code uses the three-domain method above.
@@ -169,13 +171,15 @@ else transport, AI or GIS ≥ its NOTABLE_MIN_*                → notable
 else                                                         → below threshold
 ```
 
+A **roundup** (`article_type = roundup`) is never qualified, however high its total (it scores across many topics without one substantial story); at most it is notable. `digest_order()` lists qualified articles, then notable ones with roundups last, each group highest total first; the Markdown and WhatsApp digests both use it (`289030e`).
+
 `select_for_digest()` publishes qualified then notable articles, highest total first, up to `TOP_RANKED` (8). Notable articles always score below `MIN_TOTAL_SCORE`, so qualified ones always come first. Fewer than 8 items are published when fewer are relevant. `select_ai_headlines()` separately publishes AI headlines, highest AI score first, up to `AIDB_HEADLINES_MAX` (4), so they never take one of the 8 slots.
 
 - **Digest** (`output/digest-YYYY-MM-DD.md`), titled "Daily Briefing — date", in two sections, each numbered from 1:
-  - **Intelligent Transportation System (ITS):** qualified articles, then notable ones under "Also notable (strong in one domain)". Each shows `Score: 15 (Transport 3, AI 3, GIS 0)`, a summary and "why it matters".
+  - **Intelligent Transportation System (ITS):** qualified articles, then notable ones under "Also notable (strong in one domain)". Each shows `Labels: Singapore · policy` (when set), `Score: 15 (Transport 3, AI 3, GIS 0)`, a summary and "why it matters".
   - **AI Daily Brief** (after a horizontal rule): AI headlines with their AI score, the story splitter's summary (100–150 words, no extra LLM call) and a link to the story's place in the episode page.
-  - Both headings always appear; an empty section says so ("No relevant ITS articles today.", "No AI Daily Brief stories today."). The AI Daily Brief section is often empty: episodes are not daily and are dated 23:59 UTC, so many 24-hour windows contain none. That is accepted.
-- **Debug digest** (`output/debug-digest-YYYY-MM-DD.md`): every scored article, highest total first, with status (`qualified, published`, `notable, over max`, `ai headline, published`, `below threshold`, …), the three scores, the text it was scored on, the model that scored it, and all three reasons. No LLM calls.
+  - Both headings always appear; an empty section says so ("No relevant ITS articles today.", "No AI Daily Brief stories today."). The AI Daily Brief section is often empty: episodes are not daily. Since 2026-11-13 (`333e612`) AI Daily Brief has a 48-hour window: episodes are stamped 23:59 UTC on their date and reach the archive up to ~13 h later, so the 24-hour window often dropped them before a run saw them.
+- **Debug digest** (`output/debug-digest-YYYY-MM-DD.md`): every scored article, highest total first, with market and type columns, status (`qualified, published`, `notable, over max`, `ai headline, published`, `below threshold`, …), the three scores, the text it was scored on, the model that scored it, and all three reasons. No LLM calls.
 
 `Article` carries `digest_status` and `published` for this; both will map onto the v0.4 repository's digest-status column.
 
@@ -208,12 +212,14 @@ The transport and AI feeds added since then have not been checked yet.
 - `validate_feeds.py` reports HTTP status, content type and parse errors.
 - **Page decoding** (2026-11-03): `fetch_page_text()` passes the raw bytes to trafilatura, which reads the page's own charset. `response.text` used requests' guess, ISO-8859-1 when the HTTP header names no charset, which garbled Gasgoo's Chinese pages and Google DeepMind's apostrophes ("DeepMindâs").
 - **Deduplication** (2026-11-03): `deduplicate_articles()` compares URLs without `utm_*` parameters (`#fragments` kept: AI Daily Brief stories differ only by fragment) and normalised titles (case, spaces, punctuation and invisible characters ignored; titles under 10 characters never matched).
-- **Per-source lookback** (`RECENT_HOURS_OVERRIDES`, Gasgoo 48 h) and **no republishing**: `main.py` drops articles already published in an earlier pipeline run (`db.published_urls()`, `feeds.drop_previously_published()`), before page fetch and scoring. Open choice: this also applies to same-day reruns, which therefore give a thinner digest; the alternative is to skip only articles published on an earlier day (recommended, a one-line change).
+- **Per-source lookback** (`RECENT_HOURS_OVERRIDES`, 48 h for Gasgoo and, since `333e612` on 2026-11-13, AI Daily Brief; `aidailybrief.AIDB_RECENT_HOURS` reads its window from there, so the episode filter and `filter_recent_articles()` agree) and **no republishing**: `main.py` drops articles already published in an earlier pipeline run (`db.published_urls()`, `feeds.drop_previously_published()`), before page fetch and scoring. Open choice: this also applies to same-day reruns, which therefore give a thinner digest; the alternative is to skip only articles published on an earlier day (recommended, a one-line change).
+- **Catch-up runs** (`c4fcc40`, 2026-11-17): `uv run python -m aimobility_news.main --hours N` gives every source a window of at least N hours for one run (`filter_recent_articles(min_hours=N)`) and fetches AI Daily Brief episodes from the same span, e.g. `--hours 96` after missed days. It never shrinks a source's normal window; articles already published in an earlier digest are still dropped. The `hours` argument of the inspection helpers still sets one exact window for every source.
 - `main.py` times each step and prints a summary, slowest first.
 - `feeds.py` inspection helpers (no LLM calls; they also see on-hold feeds in `FEEDS_AI_CN` and `FEEDS_transport_CN`, via `known_feeds()`):
   - `inspect_extraction(sources, hours=None, limit=5, preview_chars=600, fetch_pages=False)`: runs the pipeline's text steps (fetch, per-source recency window, keyword filter, page fetch) and shows for each article where its text came from (feed or page), its length, what scoring receives after the cap, and the start and end of the text. `fetch_pages=True` also fetches pages for sources not in `PAGE_FETCH_SOURCES`, to judge whether adding them would help. Run with `uv run python -m aimobility_news.feeds` (edit the call at the bottom of `feeds.py`).
   - `inspect_feed_structure(source)`: the raw RSS fields of a feed, to find where the article text is stored (e.g. Gasgoo's `content`).
   - `inspect_article_webpage()` was removed on 2026-11-03: `inspect_extraction(..., fetch_pages=True)` covers it, with the timezone and per-source windows applied.
+- **`feed-diagnostics` skill** (`.claude/skills/feed-diagnostics/`, 2026-11-19): a procedure for checking a feed's content completeness. It samples 5–10 entries, compares RSS text with trafilatura page text (Playwright only where needed), classifies each article and the source (`RSS_COMPLETE`, `PAGE_FETCH_REQUIRED`, `MIXED`, `INCONCLUSIVE`) and recommends the cheapest reliable extraction method. It reuses the helpers above and changes no production code; adding a source to `PAGE_FETCH_SOURCES` stays the user's decision. Intended for the open full-text check in section 2.7.
 
 ### 2.7 Remaining v0.2 work
 
@@ -413,7 +419,7 @@ One file, `output/db/news.db` (`DB_FILE`, git-ignored):
 |---|---|
 | `runs` | pipeline, backfill or import run: kind, start time, code version, settings (provider, models, thresholds) |
 | `articles` | URL (RSS articles, Esri posts, AI Daily Brief stories): title, source, published date, feed summary, longest full text seen |
-| `scores` | scoring of an article: model, code version, prompt hash, the exact text the model saw, three scores and reasons, total, error |
+| `scores` | scoring of an article: model, code version, prompt hash, the exact text the model saw, three scores and reasons, total, error, market and article type (since `289030e`) |
 | `summaries` | digest summary of a published ITS article: model, code version, prompt hash, English title, summary, why it matters, error (`5e94fec`) |
 | `digest_items` | run × article: digest status, published, section, and the score and summary used |
 | `aidb_episodes` | AI Daily Brief episode: date, URL, title, lead |
@@ -422,7 +428,7 @@ One file, `output/db/news.db` (`DB_FILE`, git-ignored):
 - `main.py` saves each run at the end; a database failure only warns, since the digests are already written.
 - **Score reuse:** `reuse_scores()` applies a stored score when the same model has already scored an identical prompt (same rubric, title and text). A rubric change gives a new prompt hash and a fresh score.
 - **Story sets** are cached in the database (previously `stories__<model>.json` files).
-- **Migration:** `migrate()` adds columns introduced after a table was created (`digest_items.summary_id`).
+- **Migration:** `migrate()` adds columns introduced after a table was created (`digest_items.summary_id`, `summaries.one_liner`, `scores.market`, `scores.article_type`).
 - `--import-legacy` loaded the v0.3 JSONL pool (85 rows) and story JSON files (idempotent); `--stats` prints counts. `pool.py` and `SCORED_POOL` are removed.
 
 ### 4.2 AI Daily Brief backfill (`backfill_aidb.py`, `78f689f`)
@@ -585,14 +591,14 @@ Esri search (OpenAI web search) --------→ Article objects
 AI Daily Brief stories ----------------/
   (recent episodes split into stories by aidailybrief_transcript.build_stories(), cached)
 
-→ filter_recent_articles()     last RECENT_HOURS; undated articles dropped
+→ filter_recent_articles()     last RECENT_HOURS (per-source overrides; --hours widens); undated articles dropped
 → deduplicate_articles()       exact URL
 → keyword_filter()             only for sources in FEED_KEYWORDS (none yet)
 → add_page_content()           webpage full text for PAGE_FETCH_SOURCES
-→ score_articles()             llm.parse(): transport, AI, GIS (0–5) + reasons
+→ score_articles()             llm.parse(): transport, AI, GIS (0–5) + reasons, market, article type
                                total = (T + 1) × (A + G + 1) − 1
 → rank_articles()              total_score, descending
-→ classify_articles()          qualified / ai headline / notable / below threshold / scoring failed
+→ classify_articles()          qualified / ai headline / notable / below threshold / scoring failed (roundups never qualified)
 → select_for_digest()          ITS: qualified then notable, up to TOP_RANKED
 → select_ai_headlines()        AI Daily Brief: highest AI score, up to AIDB_HEADLINES_MAX
 → generate_digest()            ITS: summarise_articles(), LLM summary + "why it matters" (+ English title for non-English titles); AI Daily Brief: stored story summary
@@ -611,6 +617,7 @@ Before scoring, db.reuse_scores() applies stored scores for identical prompts.
 ```python
 FEEDS = {**FEEDS_transport, **FEEDS_AI, **FEEDS_gis}   # **FEEDS_AI_CN on hold
 RECENT_HOURS = 24
+RECENT_HOURS_OVERRIDES = {...}     # 48 for the Gasgoo feeds and AI Daily Brief
 MIN_TOTAL_SCORE = 11               # on the 0–65 scale
 NOTABLE_MIN_TRANSPORT_SCORE = 3
 NOTABLE_MIN_AI_SCORE = 3
@@ -661,6 +668,8 @@ class Article:
     gis_score: int | None = None
     gis_reason: str | None = None
     total_score: int | None = None     # combine_scores(), 0–65
+    market: str | None = None          # models.Market label, e.g. "Singapore"
+    article_type: str | None = None    # models.ArticleType label, e.g. "roundup"
     scored_by: str | None = None       # provider:model
     scoring_error: str | None = None   # set when the scoring call failed
     score_id: int | None = None        # scores.id in the database
@@ -688,6 +697,20 @@ class Article:
 ### Commit history
 
 ```text
+c4fcc40 Add --hours option to widen the lookback window for one run
+333e612 Give AI Daily Brief a 48-hour lookback window
+289030e Add market and article-type labels; down-rank roundups
+c958cb6 Revise roadmap: add agentic extraction and recovery as v0.7
+f573473 Add shared read-only queries module (v0.6 slice 0)
+11f2c63 Add v0.6 web interface specification
+1969ff3 Document Gasgoo feeds and Chinese AI feed findings
+34d3235 Add Gasgoo feeds; Beijing-time dates, title dedupe, no republishing
+959ce99 Add vision and product strategy; make Chinese sources a priority
+ca313e2 Mark v0.5 complete; document the WhatsApp-ready digest
+170dede Add WhatsApp-ready digest (v0.5)
+edd5b17 Mark v0.4 complete
+1a2ac0f Add db.py tests with pytest
+740c6f8 Update README and checkpoint for v0.4 progress
 cf59d17 Add a reader for stored digest content
 5e94fec Store digest summaries in the database
 78f689f Start v0.4: SQLite news repository and AI Daily Brief backfill
@@ -713,7 +736,7 @@ b10c490 Reduce scoring.py __main__ to a single-article test
 
 ## Resume point
 
-v0.4 is complete (section 4): the pipeline stores every run in `output/db/news.db` (articles, scores, published summaries, digest status), reuses scores for identical prompts, `reader.py` reads past digests back by day, and the AI Daily Brief is backfilled from 2026-09-01. v0.5 is complete (section 5): each run also writes `output/whatsapp-YYYY-MM-DD.txt` with one-line summaries and copies it to the clipboard for pasting into WhatsApp. v0.3 is wrapped up on OpenAI. The November 2026 product strategy makes source quality the priority. On 2026-11-03 three Gasgoo feeds (Chinese automotive technology) were added with Beijing-time dates and a 48-hour window, deduplication now also matches titles, and articles published in an earlier digest are not republished (sections 2.8.1 and 2.6). The Chinese AI feeds (QbitAI, Leiphone AI) were examined but are still off (section 2.8.2). Runs use OpenAI; `RECENT_HOURS = 24` (Gasgoo 48).
+v0.4 is complete (section 4): the pipeline stores every run in `output/db/news.db` (articles, scores, published summaries, digest status), reuses scores for identical prompts, `reader.py` reads past digests back by day, and the AI Daily Brief is backfilled from 2026-09-01. v0.5 is complete (section 5): each run also writes `output/whatsapp-YYYY-MM-DD.txt` with one-line summaries and copies it to the clipboard for pasting into WhatsApp. v0.3 is wrapped up on OpenAI. The November 2026 product strategy makes source quality the priority. On 2026-11-03 three Gasgoo feeds (Chinese automotive technology) were added with Beijing-time dates and a 48-hour window, deduplication now also matches titles, and articles published in an earlier digest are not republished (sections 2.8.1 and 2.6). The Chinese AI feeds (QbitAI, Leiphone AI) were examined but are still off (section 2.8.2). Runs use OpenAI; `RECENT_HOURS = 24` (Gasgoo and AI Daily Brief 48; `--hours N` widens one run). Since 2026-11-11 articles carry market and article-type labels and roundups are never qualified (section 2.4). v0.6 Slice 0 (`web/queries.py`) is committed; its learning log is pending (`docs/learning/progress.md`).
 
 Next:
 
