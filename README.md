@@ -75,7 +75,9 @@ The guiding principle is:
   fetching the article webpage for selected sources
 - Scores each article with an LLM on three independent 0–5 criteria (land
   transport, AI, GIS/GeoAI) and combines them so that transport combined
-  with AI and/or GIS ranks highest
+  with AI and/or GIS ranks highest; the same call labels each article's
+  market (Singapore, US, China, Europe, Global, Other) and type (news,
+  research, policy, opinion, press release, roundup)
 - Publishes a two-section **Daily Briefing**:
   - **Intelligent Transportation System (ITS):** articles at or above a
     minimum score, up to a configurable Top N, plus "Also notable" articles
@@ -100,13 +102,15 @@ The guiding principle is:
 
 ```text
 RSS feeds + Esri search + AI Daily Brief stories
-→ recent articles (RECENT_HOURS, or RECENT_HOURS_OVERRIDES per source)
+→ recent articles (RECENT_HOURS, or RECENT_HOURS_OVERRIDES per source;
+  --hours N widens every window for one run)
 → deduplicate (URL and title), drop articles published in earlier digests
 → fetch article pages (PAGE_FETCH_SOURCES only)
 → reuse stored scores for identical prompts
-→ LLM scoring (transport, AI, GIS → total_score)
+→ LLM scoring (transport, AI, GIS → total_score; market and type labels)
 → classify: qualified / AI headline / notable / below threshold
-→ ITS section: qualified, then "Also notable", up to TOP_RANKED
+  (roundups are never qualified)
+→ ITS section: qualified, then "Also notable" (roundups last), up to TOP_RANKED
 → AI Daily Brief section: AI headlines, up to AIDB_HEADLINES_MAX
 → summaries for the ITS articles
 → Markdown output (digest + debug digest), LLM call log
@@ -160,6 +164,17 @@ qualify becomes an "AI headline" if its AI score is at least
 `AIDB_HEADLINES_MIN_AI_SCORE` (3). The full rubric is in
 `src/aimobility_news/scoring.py`.
 
+The scoring call also returns two labels, which do not change `total_score`:
+
+- `market`: Singapore, US, China, Europe, Global or Other
+- `article_type`: news, research, policy, opinion, press_release or roundup
+
+They appear in the digest (`Labels: Singapore · policy`) and the debug digest.
+Policy that uses them lives in `ranking.py`, so it can change without
+re-scoring: a **roundup** (many topics, no single substantial story) is never
+qualified, however high its total; at most it is "Also notable", listed after
+the other notable articles in both the Markdown and WhatsApp digests.
+
 ## AI Daily Brief stories
 
 Each episode is published as a Markdown outline (one `###` heading per
@@ -174,8 +189,11 @@ markers. `aidailybrief_transcript.py`:
 5. saves the result in the database (`aidb_story_sets`, one per episode and
    model), which later runs reuse
 
-The pipeline does this for every episode in the time window. Episodes are not
-published every day, so the AI Daily Brief section is sometimes empty.
+The pipeline does this for every episode in the time window, which is 48
+hours for AI Daily Brief: episodes are dated by day (stamped 23:59 UTC) and
+reach the archive up to ~13 hours later, so a 24-hour window would often miss
+them. Episodes are not published every day, so the AI Daily Brief section is
+sometimes empty.
 `backfill_aidb.py` does the same for a range of past episodes, committing per
 episode so an interrupted run resumes where it stopped.
 
@@ -187,7 +205,7 @@ episode so an interrupted run resumes where it stopped.
 |---|---|
 | `runs` | pipeline, backfill or import run, with code version and settings |
 | `articles` | URL: title, source, published date, feed summary, longest full text |
-| `scores` | scoring: model, prompt hash, exact text, scores, reasons, error |
+| `scores` | scoring: model, prompt hash, exact text, scores, reasons, market and type labels, error |
 | `summaries` | digest summary of a published ITS article: model, prompt hash, summary, why it matters |
 | `digest_items` | run × article: digest status, published, section, score and summary used |
 | `aidb_episodes` | AI Daily Brief episode: date, title, lead |
@@ -238,6 +256,11 @@ uv run python -m aimobility_news.main
 # Same, with a local Ollama model instead of OpenAI
 uv run python -m aimobility_news.main --provider ollama
 
+# Catch up after missed days: every source gets a window of at least N hours
+# for this run (never shorter than its normal window); articles already
+# published in an earlier digest are still skipped
+uv run python -m aimobility_news.main --hours 96
+
 # Split AI Daily Brief episodes into stories (by date, or the latest N);
 # --refresh reruns the LLM steps, --compare adds a single-call baseline
 # and a judge's comparison
@@ -282,7 +305,7 @@ All output goes to `output/`, which is git-ignored:
 |---|---|
 | `digest-YYYY-MM-DD.md` | The Daily Briefing. Same-day reruns are saved as `(1)`, `(2)`, … |
 | `whatsapp-YYYY-MM-DD.txt` | The WhatsApp-ready text (also copied to the clipboard): open WhatsApp Desktop or Web and press Ctrl+V |
-| `debug-digest-YYYY-MM-DD.md` | Every scored article: status, total, transport, AI, GIS, the model that scored it, and the reasons; for tuning the threshold and rubric |
+| `debug-digest-YYYY-MM-DD.md` | Every scored article: status, total, transport, AI, GIS, market, type, the model that scored it, and the reasons; for tuning the threshold and rubric |
 | `db/news.db` | The SQLite news repository (see [Database](#database)) |
 | `reader/<section or all>-<since>_<until>.md` | Output of `reader.py` |
 | `llm-calls.csv` | One row per LLM call: provider, model, task, status, tokens, seconds |
@@ -299,7 +322,7 @@ All settings are in `src/aimobility_news/config.py`:
 |---|---|
 | `FEEDS` | Active RSS feeds: `FEEDS_transport`, `FEEDS_AI`, `FEEDS_gis` and `FEEDS_transport_CN` (Gasgoo) merged; `FEEDS_AI_CN` (QbitAI, Leiphone AI) is on hold |
 | `RECENT_HOURS` | Freshness window (24) |
-| `RECENT_HOURS_OVERRIDES` | Longer windows for feeds that lag (Gasgoo: 48) |
+| `RECENT_HOURS_OVERRIDES` | Longer windows for sources that lag (Gasgoo and AI Daily Brief: 48); `--hours` widens all windows for one run |
 | `FEED_TIMEZONES` | Timezone of feeds whose dates have none (Gasgoo: +8, Beijing) |
 | `MIN_TOTAL_SCORE` | Minimum `total_score` for the ITS section (11) |
 | `TOP_RANKED` | Maximum number of ITS items (8) |
@@ -327,7 +350,7 @@ All settings are in `src/aimobility_news/config.py`:
 src/aimobility_news/
 ├── main.py                       # pipeline entry point, step timing
 ├── config.py                     # feeds and settings
-├── models.py                     # Article dataclass
+├── models.py                     # Article dataclass; market and article-type labels
 ├── feeds.py                      # RSS fetch, full-text extraction, page fetch, filter, dedupe
 ├── aidailybrief.py               # AI Daily Brief archive scraper; episodes -> story articles
 ├── aidailybrief_transcript.py    # split an episode into stories (outline + transcript)
@@ -336,20 +359,25 @@ src/aimobility_news/
 ├── llm_openai.py                 # OpenAI structured output
 ├── llm_ollama.py                 # Ollama structured output (native API)
 ├── scoring.py                    # relevance scoring (transport, AI, GIS)
-├── ranking.py                    # sort, classify, select ITS and AI Daily Brief items
+├── ranking.py                    # sort, classify (roundups never qualified), digest order, select items
 ├── digest.py                     # summaries, Markdown digest and debug digest -> output/
 ├── digest_whatsapp.py            # WhatsApp-ready text: one-liners, formatting, clipboard
 ├── db.py                         # SQLite repository: schema, save, score reuse, --stats
 ├── backfill_aidb.py              # backfill past AI Daily Brief episodes into the database
-├── reader.py                     # stored digests -> one Markdown file by day (standalone, read-only)
-└── validate_feeds.py             # feed health check
+├── reader.py                     # stored digests -> one Markdown file by day (read-only)
+├── textlen.py                    # text length in English-word equivalents (Chinese-aware)
+├── validate_feeds.py             # feed health check
+└── web/
+    └── queries.py                # shared read-only database queries (v0.6; used by reader.py)
 
 tests/
 ├── conftest.py                   # temporary database, fake LLM, article helper
 ├── test_db.py                    # repository, score reuse, summaries, import, backfill resume
-├── test_feeds.py                 # feed dates and timezones, page decoding, dedupe, lookback windows
+├── test_feeds.py                 # feed dates and timezones, page decoding, dedupe, lookback windows, --hours
+├── test_queries.py               # web/queries.py: latest run wins, read-only connection, local day
+├── test_ranking.py               # classification, roundups, digest order
 └── test_whatsapp.py              # WhatsApp selection, one-liners, fallback, format, clipboard
 ```
 
 See `aimobility-news-checkpoint.md` for detailed progress notes, the roadmap,
-v0.4 status and deferred work (local-model benchmark and evaluation dataset).
+v0.6 plan and deferred work (local-model benchmark and evaluation dataset).
